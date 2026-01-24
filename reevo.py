@@ -144,7 +144,7 @@ class ReEvo:
         """
         # Write response to file
         file_name = f"problem_iter{self.iteration}_response{response_id}.txt" if file_name is None else file_name + ".txt"
-        with open(file_name, 'w') as file:
+        with open(file_name, 'w', encoding="utf-8") as file:
             file.writelines(response + '\n')
 
         code = extract_code_from_generator(response)
@@ -208,7 +208,7 @@ class ReEvo:
 
             individual = population[response_id]
             stdout_filepath = individual["stdout_filepath"]
-            with open(stdout_filepath, 'r') as f:  # read the stdout file
+            with open(stdout_filepath, 'r',encoding="utf-8") as f:  # read the stdout file
                 stdout_str = f.read() 
             traceback_msg = filter_traceback(stdout_str)
             
@@ -233,11 +233,11 @@ class ReEvo:
         """
         logging.debug(f"Iteration {self.iteration}: Processing Code Run {response_id}")
         
-        with open(self.output_file, 'w') as file:
+        with open(self.output_file, 'w',encoding="utf-8") as file:
             file.writelines(individual["code"] + '\n')
 
         # Execute the python file with flags
-        with open(individual["stdout_filepath"], 'w') as f:
+        with open(individual["stdout_filepath"], 'w',encoding="utf-8") as f:
             eval_file_path = f'{self.root_dir}/problems/{self.problem}/eval.py' if self.problem_type != "black_box" else f'{self.root_dir}/problems/{self.problem}/eval_black_box.py' 
             process = subprocess.Popen(['python', '-u', eval_file_path, f'{self.problem_size}', self.root_dir, "train"],
                                         stdout=f, stderr=f)
@@ -397,11 +397,11 @@ class ReEvo:
         
         # Write reflections to file
         file_name = f"problem_iter{self.iteration}_short_term_reflections.txt"
-        with open(file_name, 'w') as file:
+        with open(file_name, 'w',encoding="utf-8") as file:
             file.writelines("\n".join(short_term_reflections) + '\n')
         
         file_name = f"problem_iter{self.iteration}_long_term_reflection.txt"
-        with open(file_name, 'w') as file:
+        with open(file_name, 'w',encoding="utf-8") as file:
             file.writelines(self.long_term_reflection_str + '\n')
 
 
