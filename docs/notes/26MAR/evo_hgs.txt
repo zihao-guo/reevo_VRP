@@ -49,3 +49,63 @@
    - 若 120 秒内仍未结束，则立即终止并输出 `inf`（训练模式）；
    - 若正常结束，则继续进入原有并行评估流程。
 21. **！！！**修改 `cfg/problem/cvrp_hgs.yaml`，加入 `smoke_test_instance: X-n101-k25.vrp` 与 `smoke_test_timeout: 120` 配置。
+22. 检查当前 `problems/cvrp_hgs/eval.py` 的锁范围与 `pyvrp_rep` 的插件加载逻辑，确认旧实现虽然支持单候选内部按 `cpu核心数 // 2` 并行跑实例，但不同候选之间仍共享：
+   - 同一个 `pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange_candidate.cpp`；
+   - 同一个 `build-reevo-cvrp-hgs-py311`；
+   - 同一个 `pyvrp.crossover._srex_plugin` 安装目标；
+   - 因此需要额外做候选级 sandbox 才能真正并行化。
+23. 查阅 `pyvrp_rep/pyvrp/crossover/selective_route_exchange.py`、`pyvrp_rep/meson.build`、`pyvrp_rep/pyvrp/cpp/crossover/srex_plugin_bindings.cpp`，确认仓库已经具备：
+   - 候选插件 `_srex_plugin`；
+   - `PYVRP_SREX_USE_PLUGIN` 环境变量切换；
+   - 单独的 `selective_route_exchange_candidate.cpp` 编译目标；
+   - 但当前 `eval.py` 还没有把这些能力用于“候选间隔离”。
+24. 第一次并行化方案尝试：
+   - 先锁住共享基础 build；
+   - 再复制一份已编好的 `pyvrp_rep` 到临时目录；
+   - 在临时目录内做候选增量编译和评估。
+25. **！！！**第一次修改 `problems/cvrp_hgs/eval.py`：
+   - 新增 `tempfile`；
+   - 新增 `sandbox_problem_paths(...)`；
+   - 新增 `clone_pyvrp_sandbox(...)`；
+   - 将候选编译和评估路径重定向到 `/tmp/cvrp-hgs-pyvrp-*/pyvrp_rep`；
+   - `incremental_build_candidate(...)` 改成只写 sandbox 内的 `candidate_cpp`。
+26. 运行语法检查：
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -m py_compile /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py`
+27. 第一次并行验证命令：
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -u /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /home/zguo/Coding/reevo_VRP/outputs/cvrp_hgs-hgs/2026-03-26_12-34-14/problem_iter12_candidate12_selective_route_exchange.cpp`
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -u /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /home/zguo/Coding/reevo_VRP/outputs/cvrp_hgs-hgs/2026-03-26_12-34-14/problem_iter13_candidate2_selective_route_exchange.cpp`
+28. 第一次并行验证观察结果：
+   - 两个 `eval.py` 确实同时启动了各自的 `meson compile` 与 `ninja`；
+   - 但 Meson 打印的 `Source dir` 仍指向仓库内原始 `pyvrp_rep`；
+   - 说明“复制旧 build 目录”会把 Meson 的源目录绑定也带过去，不是真正隔离。
+29. 基于第一次验证结果，确认必须进一步修正为：
+   - 复制源码树；
+   - 不复制 `build-*`；
+   - 每个候选在自己的 sandbox 中重新创建 build 目录。
+30. **！！！**第二次修改 `problems/cvrp_hgs/eval.py`：
+   - 移除候选级共享 `build.lock` 依赖；
+   - `clone_pyvrp_sandbox(...)` 增加忽略项：`build-*`、`docs`、`examples`、`tests`；
+   - 让每个候选在独立 `/tmp/.../pyvrp_rep` 下重新执行 `buildtools/build_extensions.py`；
+   - 保证 `_srex_plugin`、`_crossover`、`_pyvrp` 等安装到各自独立 sandbox。
+31. 再次运行语法检查：
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -m py_compile /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py`
+32. 第二次并行验证命令：
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -u /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /home/zguo/Coding/reevo_VRP/outputs/cvrp_hgs-hgs/2026-03-26_12-34-14/problem_iter12_candidate12_selective_route_exchange.cpp`
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -u /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /home/zguo/Coding/reevo_VRP/outputs/cvrp_hgs-hgs/2026-03-26_12-34-14/problem_iter13_candidate2_selective_route_exchange.cpp`
+33. 第二次并行验证关键证据：
+   - 候选 A 的 Meson 输出：
+     - `Source dir: /tmp/cvrp-hgs-pyvrp-nrjchfix/pyvrp_rep`
+     - `Build dir: /tmp/cvrp-hgs-pyvrp-nrjchfix/pyvrp_rep/build-reevo-cvrp-hgs-py311`
+   - 候选 B 的 Meson 输出：
+     - `Source dir: /tmp/cvrp-hgs-pyvrp-6u4oxslt/pyvrp_rep`
+     - `Build dir: /tmp/cvrp-hgs-pyvrp-6u4oxslt/pyvrp_rep/build-reevo-cvrp-hgs-py311`
+   - 进程表同时出现：
+     - 两条 `eval.py`
+     - 两条 `meson compile`
+     - 两条 `ninja`
+   - 证明不同候选已经进入不同 sandbox，能够真正并行编译和评估。
+34. 在确认关键证据后，手动中止这两条验证进程，避免继续占用大量 CPU 资源。
+35. 当前并行化后的结论：
+   - 单个候选内部仍然保留实例级并行；
+   - 不同候选之间也已经具备真正并行的 sandbox；
+   - 后续若重新运行 `population=16` 的长程 evolve，可望显著减少“候选排队等待同一 build/plugin”的时间。

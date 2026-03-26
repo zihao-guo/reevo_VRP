@@ -80,3 +80,37 @@
    - 已回收的候选目标值包括：`-38.666666666666664`、`-44.5`
    - 也已有多条候选记为 `inf`
    - `Iteration 8` 尚未全部结束，因此最佳值仍停留在 `-52.416666666666664`
+25. **！！！** 修改 `reevo_VRP/problems/cvrp_hgs/eval.py`，把候选评估从“共享 build.lock 串行”改成“每个候选独立 sandbox”：
+   - 新增 `tempfile.TemporaryDirectory(prefix="cvrp-hgs-pyvrp-")`
+   - 新增 `clone_pyvrp_sandbox(...)`
+   - 新增 `sandbox_problem_paths(...)`
+   - `incremental_build_candidate(...)` 改为只写 sandbox 内的 `candidate_cpp`
+   - 候选评估改成在各自 `/tmp/.../pyvrp_rep` 中独立编译、独立 smoke test、独立实例评估
+26. 运行语法检查命令：
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -m py_compile /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py`
+27. 结果：
+   - `eval.py` 语法检查通过
+28. 运行并行验证命令（第一次验证）：
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -u /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /home/zguo/Coding/reevo_VRP/outputs/cvrp_hgs-hgs/2026-03-26_12-34-14/problem_iter12_candidate12_selective_route_exchange.cpp`
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -u /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /home/zguo/Coding/reevo_VRP/outputs/cvrp_hgs-hgs/2026-03-26_12-34-14/problem_iter13_candidate2_selective_route_exchange.cpp`
+29. 第一次验证得到的关键现象：
+   - 两个 `eval.py` 确实同时启动了各自的 `meson compile` / `ninja`
+   - 但复制旧 build 目录会让 Meson 的 `Source dir` 仍指向仓库内原始 `pyvrp_rep`
+   - 这说明“复制 build 目录”不够，必须改成“复制源码树，不复制 build 目录”
+30. **！！！** 二次修正 `reevo_VRP/problems/cvrp_hgs/eval.py`：
+   - `clone_pyvrp_sandbox(...)` 改成忽略 `build-*`、`docs`、`examples`、`tests`
+   - 删除候选级共享锁依赖，改为每个候选在独立 sandbox 中新建自己的 build 目录
+31. 再次运行并行验证命令（修正版）：
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -u /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /home/zguo/Coding/reevo_VRP/outputs/cvrp_hgs-hgs/2026-03-26_12-34-14/problem_iter12_candidate12_selective_route_exchange.cpp`
+   - `/home/zguo/Coding/reevo_VRP/.venv/bin/python -u /home/zguo/Coding/reevo_VRP/problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /home/zguo/Coding/reevo_VRP/outputs/cvrp_hgs-hgs/2026-03-26_12-34-14/problem_iter13_candidate2_selective_route_exchange.cpp`
+32. 修正版并行验证结果：
+   - 两个候选同时进入独立 sandbox
+   - 候选 A 的 Meson 输出显示：
+     - `Source dir: /tmp/cvrp-hgs-pyvrp-nrjchfix/pyvrp_rep`
+     - `Build dir: /tmp/cvrp-hgs-pyvrp-nrjchfix/pyvrp_rep/build-reevo-cvrp-hgs-py311`
+   - 候选 B 的 Meson 输出显示：
+     - `Source dir: /tmp/cvrp-hgs-pyvrp-6u4oxslt/pyvrp_rep`
+     - `Build dir: /tmp/cvrp-hgs-pyvrp-6u4oxslt/pyvrp_rep/build-reevo-cvrp-hgs-py311`
+   - 进程表同时观测到两条 `eval.py`、两条 `meson compile`、两条 `ninja`
+   - 说明候选间已经真正并行化，不再共享同一个 `_srex_plugin` / build 目录
+33. 为了不继续占用 CPU，以上并行验证进程在确认关键证据后已手动中止

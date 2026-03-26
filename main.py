@@ -26,7 +26,6 @@ def main(cfg):
     mutation_llm = hydra.utils.instantiate(cfg.llm_mutation) if cfg.get("llm_mutation") else None
     
     if cfg.algorithm == "reevo":
-        # //modify Problem-specific ReEvo specialisation now lives inside the main ReEvo class.
         from reevo import ReEvo as LHH
     elif cfg.algorithm == "ael":
         from baselines.ael.ga import AEL as LHH
@@ -52,9 +51,15 @@ def main(cfg):
         file.writelines(best_code_overall + '\n')
     test_script = f"{ROOT_DIR}/problems/{cfg.problem.problem_name}/eval.py"
     test_script_stdout = "best_code_overall_val_stdout.txt"
+    final_dir = workspace_dir / "final"
+    final_dir.mkdir(parents=True, exist_ok=True)
+    final_cpp_output = final_dir / "selective_route_exchange.cpp"
     logging.info(f"Running validation script...: {print_hyperlink(test_script)}")
     with open(test_script_stdout, 'w', encoding="utf-8") as stdout:
-        subprocess.run(["python", test_script, "-1", ROOT_DIR, "val"], stdout=stdout)
+        env = os.environ.copy()
+        env["REEVO_GENERATED_OUTPUT"] = str(final_cpp_output)
+        subprocess.run(["python", test_script, "-1", ROOT_DIR, "val"], stdout=stdout, env=env)
+    logging.info(f"Final generated code saved to: {print_hyperlink(final_cpp_output)}")
     logging.info(f"Validation script finished. Results are saved in {print_hyperlink(test_script_stdout)}.")
     
     # Print the results

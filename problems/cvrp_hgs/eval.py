@@ -348,6 +348,9 @@ def main() -> None:
 
     cfg = load_problem_cfg(root_dir)
     paths = problem_paths(root_dir, cfg)
+    generated_output_override = os.environ.get("REEVO_GENERATED_OUTPUT")
+    if generated_output_override:
+        paths["generated_output"] = Path(generated_output_override).resolve()
     candidate_code = load_candidate_code(root_dir, candidate_path)
     reference_code = paths["original_reference"].read_text(encoding="utf-8")
 
