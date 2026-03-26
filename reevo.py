@@ -8,6 +8,12 @@ from omegaconf import DictConfig
 from utils.utils import *
 from utils.llm_client.base import BaseClient
 
+try:
+    # //modify Reuse the CVRP HGS C++ extractor from the main ReEvo pipeline.
+    from problems.cvrp_hgs.code_extraction import extract_cpp_code
+except ImportError:
+    extract_cpp_code = None
+
 
 class ReEvo:
     def __init__(
@@ -67,6 +73,7 @@ class ReEvo:
         # Problem-specific prompt components
         prompt_path_suffix = "_black_box" if self.problem_type == "black_box" else ""
         problem_prompt_path = f'{self.prompt_dir}/{self.problem}{prompt_path_suffix}'
+        problem_utils_path = f"{problem_prompt_path}/utils"
         self.seed_func = file_to_string(f'{problem_prompt_path}/seed_func.txt')
         self.func_signature = file_to_string(f'{problem_prompt_path}/func_signature.txt')
         self.func_desc = file_to_string(f'{problem_prompt_path}/func_desc.txt')
@@ -75,24 +82,41 @@ class ReEvo:
             self.long_term_reflection_str = self.external_knowledge
         else:
             self.external_knowledge = ""
-        
-        
-        # Common prompts
-        self.system_generator_prompt = file_to_string(f'{self.prompt_dir}/common/system_generator.txt')
-        self.system_reflector_prompt = file_to_string(f'{self.prompt_dir}/common/system_reflector.txt')
-        self.user_reflector_st_prompt = file_to_string(f'{self.prompt_dir}/common/user_reflector_st.txt') if self.problem_type != "black_box" else file_to_string(f'{self.prompt_dir}/common/user_reflector_st_black_box.txt') # shrot-term reflection
-        self.user_reflector_lt_prompt = file_to_string(f'{self.prompt_dir}/common/user_reflector_lt.txt') # long-term reflection
-        self.crossover_prompt = file_to_string(f'{self.prompt_dir}/common/crossover.txt')
-        self.mutation_prompt = file_to_string(f'{self.prompt_dir}/common/mutation.txt')
-        self.user_generator_prompt = file_to_string(f'{self.prompt_dir}/common/user_generator.txt').format(
-            func_name=self.func_name, 
-            problem_desc=self.problem_desc,
-            func_desc=self.func_desc,
+
+        if self._uses_specialized_cpp_pipeline() and os.path.isdir(problem_utils_path):
+            # //modify Route CVRP HGS through its specialised C++ prompt stack without a subclass.
+            self.system_generator_prompt = file_to_string(f"{problem_utils_path}/system_generator.txt")
+            self.system_reflector_prompt = file_to_string(f'{self.prompt_dir}/common/system_reflector.txt')
+            self.user_reflector_st_prompt = file_to_string(f"{problem_utils_path}/user_reflector_st.txt")
+            self.user_reflector_lt_prompt = file_to_string(f'{self.prompt_dir}/common/user_reflector_lt.txt')
+            self.crossover_prompt = file_to_string(f"{problem_utils_path}/crossover.txt")
+            self.mutation_prompt = file_to_string(f"{problem_utils_path}/mutation.txt")
+            self.user_generator_prompt = file_to_string(f"{problem_utils_path}/user_generator.txt").format(
+                func_name=self.func_name,
+                problem_desc=self.problem_desc,
+                func_desc=self.func_desc,
             )
-        self.seed_prompt = file_to_string(f'{self.prompt_dir}/common/seed.txt').format(
-            seed_func=self.seed_func,
-            func_name=self.func_name,
-        )
+            self.seed_prompt = file_to_string(f"{problem_utils_path}/seed.txt").format(
+                seed_func=self.seed_func,
+                func_name=self.func_name,
+            )
+        else:
+            # Common prompts
+            self.system_generator_prompt = file_to_string(f'{self.prompt_dir}/common/system_generator.txt')
+            self.system_reflector_prompt = file_to_string(f'{self.prompt_dir}/common/system_reflector.txt')
+            self.user_reflector_st_prompt = file_to_string(f'{self.prompt_dir}/common/user_reflector_st.txt') if self.problem_type != "black_box" else file_to_string(f'{self.prompt_dir}/common/user_reflector_st_black_box.txt') # shrot-term reflection
+            self.user_reflector_lt_prompt = file_to_string(f'{self.prompt_dir}/common/user_reflector_lt.txt') # long-term reflection
+            self.crossover_prompt = file_to_string(f'{self.prompt_dir}/common/crossover.txt')
+            self.mutation_prompt = file_to_string(f'{self.prompt_dir}/common/mutation.txt')
+            self.user_generator_prompt = file_to_string(f'{self.prompt_dir}/common/user_generator.txt').format(
+                func_name=self.func_name, 
+                problem_desc=self.problem_desc,
+                func_desc=self.func_desc,
+                )
+            self.seed_prompt = file_to_string(f'{self.prompt_dir}/common/seed.txt').format(
+                seed_func=self.seed_func,
+                func_name=self.func_name,
+            )
 
         # Flag to print prompts
         self.print_crossover_prompt = True # Print crossover prompt for the first iteration
@@ -100,18 +124,41 @@ class ReEvo:
         self.print_short_term_reflection_prompt = True # Print short-term reflection prompt for the first iteration
         self.print_long_term_reflection_prompt = True # Print long-term reflection prompt for the first iteration
 
+    def _uses_specialized_cpp_pipeline(self) -> bool:
+        # //modify Detect problems that evolve standalone C++ source files instead of Python functions.
+        return self.problem == "cvrp_hgs"
+
+    def _extract_individual_code(self, content: str) -> Optional[str]:
+        # //modify Switch code extraction based on the problem's code carrier.
+        if self._uses_specialized_cpp_pipeline():
+            if extract_cpp_code is None:
+                raise ImportError("CVRP HGS code extraction helper is unavailable.")
+            return extract_cpp_code(content)
+        return extract_code_from_generator(content)
+
+    def _format_code_for_prompt(self, code: str) -> str:
+        # //modify Keep full C++ source for CVRP HGS prompts; keep Python filtering elsewhere.
+        return code if self._uses_specialized_cpp_pipeline() else filter_code(code)
+
 
     def init_population(self) -> None:
         # Evaluate the seed function, and set it as Elite
         logging.info("Evaluating seed function...")
-        code = extract_code_from_generator(self.seed_func).replace("v1", "v2")
-        logging.info("Seed function code: \n" + code)
+        code = self._extract_individual_code(self.seed_func)
+        if code is not None and not self._uses_specialized_cpp_pipeline():
+            code = code.replace("v1", "v2")
+        logging.info("Seed function code: \n" + str(code))
         seed_ind = {
             "stdout_filepath": f"problem_iter{self.iteration}_stdout0.txt",
             "code_path": f"problem_iter{self.iteration}_code0.py",
             "code": code,
             "response_id": 0,
         }
+        if self._uses_specialized_cpp_pipeline():
+            # //modify Persist each CVRP HGS candidate as a standalone C++ source file.
+            seed_ind["candidate_path"] = os.path.abspath(
+                f"problem_iter{self.iteration}_candidate0_selective_route_exchange.cpp"
+            )
         self.seed_ind = seed_ind
         self.population = self.evaluate_population([seed_ind])
 
@@ -143,11 +190,11 @@ class ReEvo:
         Convert response to individual
         """
         # Write response to file
-        file_name = f"problem_iter{self.iteration}_response{response_id}.txt" if file_name is None else file_name + ".txt"
-        with open(file_name, 'w', encoding="utf-8") as file:
+        response_file = f"problem_iter{self.iteration}_response{response_id}.txt" if file_name is None else file_name + ".txt"
+        with open(response_file, 'w', encoding="utf-8") as file:
             file.writelines(response + '\n')
 
-        code = extract_code_from_generator(response)
+        code = self._extract_individual_code(response)
 
         # Extract code and description from response
         std_out_filepath = f"problem_iter{self.iteration}_stdout{response_id}.txt" if file_name is None else file_name + "_stdout.txt"
@@ -158,6 +205,11 @@ class ReEvo:
             "code": code,
             "response_id": response_id,
         }
+        if self._uses_specialized_cpp_pipeline():
+            # //modify Give each CVRP HGS candidate a unique .cpp path for compilation.
+            individual["candidate_path"] = os.path.abspath(
+                f"problem_iter{self.iteration}_candidate{response_id}_selective_route_exchange.cpp"
+            )
         return individual
 
     def mark_invalid_individual(self, individual: dict, traceback_msg: str) -> dict:
@@ -232,14 +284,21 @@ class ReEvo:
         Write code into a file and run eval script.
         """
         logging.debug(f"Iteration {self.iteration}: Processing Code Run {response_id}")
-        
-        with open(self.output_file, 'w',encoding="utf-8") as file:
-            file.writelines(individual["code"] + '\n')
+        eval_file_path = f'{self.root_dir}/problems/{self.problem}/eval.py' if self.problem_type != "black_box" else f'{self.root_dir}/problems/{self.problem}/eval_black_box.py'
+        process_args = ['python', '-u', eval_file_path, f'{self.problem_size}', self.root_dir, "train"]
+
+        if self._uses_specialized_cpp_pipeline():
+            # //modify Compile CVRP HGS candidates from dedicated C++ files instead of overwriting gpt.py.
+            with open(individual["candidate_path"], 'w', encoding="utf-8") as file:
+                file.writelines(individual["code"] + '\n')
+            process_args.append(individual["candidate_path"])
+        else:
+            with open(self.output_file, 'w',encoding="utf-8") as file:
+                file.writelines(individual["code"] + '\n')
 
         # Execute the python file with flags
         with open(individual["stdout_filepath"], 'w',encoding="utf-8") as f:
-            eval_file_path = f'{self.root_dir}/problems/{self.problem}/eval.py' if self.problem_type != "black_box" else f'{self.root_dir}/problems/{self.problem}/eval_black_box.py' 
-            process = subprocess.Popen(['python', '-u', eval_file_path, f'{self.problem_size}', self.root_dir, "train"],
+            process = subprocess.Popen(process_args,
                                         stdout=f, stderr=f)
 
         block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration, response_id=response_id)
@@ -335,8 +394,8 @@ class ReEvo:
         else: # robust in rare cases where two individuals have the same objective value
             better_ind, worse_ind = ind2, ind1
 
-        worse_code = filter_code(worse_ind["code"])
-        better_code = filter_code(better_ind["code"])
+        worse_code = self._format_code_for_prompt(worse_ind["code"])
+        better_code = self._format_code_for_prompt(better_ind["code"])
         
         system = self.system_reflector_prompt
         user = self.user_reflector_st_prompt.format(
@@ -446,7 +505,7 @@ class ReEvo:
             user_generator = self.user_generator_prompt,
             reflection = self.long_term_reflection_str + self.external_knowledge,
             func_signature1 = func_signature1,
-            elitist_code = filter_code(self.elitist["code"]),
+            elitist_code = self._format_code_for_prompt(self.elitist["code"]),
             func_name = self.func_name,
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]

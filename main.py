@@ -26,10 +26,8 @@ def main(cfg):
     mutation_llm = hydra.utils.instantiate(cfg.llm_mutation) if cfg.get("llm_mutation") else None
     
     if cfg.algorithm == "reevo":
-        if cfg.problem.problem_name == "cvrp_hgs":  # //modify Route CVRP HGS through its specialised C++ integration.
-            from problems.cvrp_hgs.reevo_hgs import CVRPHGSReEvo as LHH
-        else:
-            from reevo import ReEvo as LHH
+        # //modify Problem-specific ReEvo specialisation now lives inside the main ReEvo class.
+        from reevo import ReEvo as LHH
     elif cfg.algorithm == "ael":
         from baselines.ael.ga import AEL as LHH
     elif cfg.algorithm == "eoh":

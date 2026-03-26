@@ -19,7 +19,7 @@
    - 将候选代码写入 `pyvrp_rep` 的 `selective_route_exchange.cpp` 与 `selective_route_exchange_candidate.cpp`；
    - 对 PyVRP 做增量编译；
    - 按 `cpu核心数 // 2` 并行验证实例；
-   - 训练模式输出平均 `delta_vs_baseline_obj` 作为 ReEvo 目标值；
+   - 训练模式输出平均 `obj_ratio_vs_baseline` 作为 ReEvo 目标值；
    - 验证模式输出 58 实例汇总指标。
 9. **！！！**修改 `cfg/problem/cvrp_hgs.yaml`，补充 `dataset_dir`、`baseline_dir`、`pyvrp_root`、`plagiarism_threshold=0.95`、`proxy_instance_count`、`parallel_workers_divisor` 等配置字段。
 10. **！！！**修改 `main.py`，仅增加一个按 `problem_name == "cvrp_hgs"` 切换到 `CVRPHGSReEvo` 的分支，其他逻辑保持不变。
@@ -31,7 +31,7 @@
 13. 清理被系统旧版 pybind11 污染过的 `problems/cvrp_hgs/pyvrp_rep/build-reevo-cvrp-hgs-py311`，准备重新配置构建。
 
 14. 使用原始 `selective_route_exchange.cpp` 作为 seed 候选运行 `problems/cvrp_hgs/eval.py train`，完成 Python 3.11 版 PyVRP 构建、候选 C++ 增量编译和 12 个代理实例并行验证，链路跑通。
-15. seed 代理集结果：`avg_delta_vs_baseline_obj = 5.833333333333333`，`feasible = 12/12`，`improved = 1/12`。
+15. seed 代理集结果：`avg_obj_ratio_vs_baseline = 5.833333333333333`，`feasible = 12/12`，`improved = 1/12`。
 16. 继续启动本地 `vllm` 服务，并运行最小端到端命令：
    - `python main.py problem=cvrp_hgs llm_client=local init_pop_size=1 pop_size=1 max_fe=2 timeout=1800`
 17. 端到端运行结果：
@@ -39,7 +39,7 @@
    - `Iteration 1` 的首个 LLM 候选被成功抽取、写入、触发增量编译，但编译失败，故该候选目标值记为 `inf`；
    - 失败原因为候选代码里 `aMoveDelta` 和 `bMoveDelta` 使用了无符号类型，却与 `0` 做 `< 0` 比较，在 `-Werror` 下被 C++ 编译器拒绝。
 18. 最小 `main.py` 运行已完整结束，并自动执行 58 个实例全量验证。当前最佳代码仍是原始 seed，对应 58 实例汇总结果：
-   - `Average delta vs baseline obj = 35.137931`
+   - `Average objective ratio vs baseline obj = 35.137931`
    - `Feasible solutions = 58/58`
    - `Improved over baseline = 0/58`
    - 说明 `cvrp_hgs` 问题接入、反抄袭、代码抽取、增量编译、并行验证、最终验证全链路已经可用，后续只需要增大搜索预算继续演化。

@@ -11,7 +11,7 @@
    - 第一个可行解相似度：`1.000000`
    - 第一个可行解目标值：`27632`
    - 第一个可行解运行时间：约 `3.000741s`
-   - 12 个代理实例平均 `delta_vs_baseline_obj = -0.5833333333333334`
+   - 12 个代理实例平均 `obj_ratio_vs_baseline = -0.5833333333333334`
 5. 运行 `source .venv/bin/activate && python -m py_compile problems/cvrp_hgs/eval.py problems/cvrp_hgs/reevo_hgs.py problems/cvrp_hgs/code_extraction.py problems/cvrp_hgs/anti_plagiarism.py main.py`，语法检查通过。
 6. 尝试运行 `./utils/start_local_vllm.sh`（脚本内 `GPU_MEMORY_UTILIZATION=0.55`），启动失败。
 7. 失败原因：

@@ -202,14 +202,18 @@ def solve_instance(
     if not feasible:
         obj = float(baseline["obj"]) + max(100000.0, float(baseline["optimal_cost"]) * 10.0)
 
+    baseline_obj = float(baseline["obj"])
+    # //modify Optimise against baseline by delta gap percentage instead of raw objective difference.
+    delta_gap_percent_vs_baseline = ((obj / baseline_obj) - 1.0) * 100.0
+
     return {
         "instance": instance_name,
         "feasible": feasible,
         "obj": obj,
         "runtime": float(result.runtime),
-        "baseline_obj": float(baseline["obj"]),
+        "baseline_obj": baseline_obj,
         "optimal_cost": float(baseline["optimal_cost"]),
-        "delta_vs_baseline": obj - float(baseline["obj"]),
+        "delta_gap_percent_vs_baseline": delta_gap_percent_vs_baseline,
         "gap_percent": ((obj - float(baseline["optimal_cost"])) / float(baseline["optimal_cost"])) * 100.0,
         "baseline_gap_percent": float(baseline["optimal_gap_percent"]),
     }
@@ -284,11 +288,11 @@ def evaluate_instances(
 
 def summarise(results: list[dict]) -> dict:
     count = len(results)
-    improved = sum(1 for result in results if result["delta_vs_baseline"] < 0)
+    improved = sum(1 for result in results if result["delta_gap_percent_vs_baseline"] < 0.0)
     feasible = sum(1 for result in results if result["feasible"])
     avg_obj = sum(result["obj"] for result in results) / count
     avg_runtime = sum(result["runtime"] for result in results) / count
-    avg_delta = sum(result["delta_vs_baseline"] for result in results) / count
+    avg_delta_gap = sum(result["delta_gap_percent_vs_baseline"] for result in results) / count
     avg_gap = sum(result["gap_percent"] for result in results) / count
     avg_baseline_gap = sum(result["baseline_gap_percent"] for result in results) / count
     return {
@@ -297,7 +301,7 @@ def summarise(results: list[dict]) -> dict:
         "improved_count": improved,
         "avg_obj": avg_obj,
         "avg_runtime": avg_runtime,
-        "avg_delta_vs_baseline": avg_delta,
+        "avg_delta_gap_percent_vs_baseline": avg_delta_gap,
         "avg_gap_percent": avg_gap,
         "avg_baseline_gap_percent": avg_baseline_gap,
     }
@@ -389,14 +393,14 @@ def main() -> None:
     print(f"[*] Instances evaluated: {summary['count']}")
     print(f"[*] Feasible solutions: {summary['feasible_count']}/{summary['count']}")
     print(f"[*] Improved over baseline: {summary['improved_count']}/{summary['count']}")
-    print(f"[*] Average objective: {summary['avg_obj']:.6f}")
-    print(f"[*] Average delta vs baseline obj: {summary['avg_delta_vs_baseline']:.6f}")
-    print(f"[*] Average runtime seconds: {summary['avg_runtime']:.6f}")
-    print(f"[*] Average optimal gap percent: {summary['avg_gap_percent']:.6f}")
-    print(f"[*] Baseline average optimal gap percent: {summary['avg_baseline_gap_percent']:.6f}")
+    print(f"[*] Average objective: {summary['avg_obj']:.2f}")
+    print(f"[*] Average delta gap vs baseline (%): {summary['avg_delta_gap_percent_vs_baseline']:.2f}")
+    print(f"[*] Average runtime seconds: {summary['avg_runtime']:.2f}")
+    print(f"[*] Average optimal gap percent: {summary['avg_gap_percent']:.2f}")
+    print(f"[*] Baseline average optimal gap percent: {summary['avg_baseline_gap_percent']:.2f}")
 
     if mood == "train":
-        print(summary["avg_delta_vs_baseline"])
+        print(f"{summary['avg_delta_gap_percent_vs_baseline']:.2f}")
 
 
 if __name__ == "__main__":
