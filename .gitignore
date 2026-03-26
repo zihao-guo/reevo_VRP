@@ -172,3 +172,4 @@ venv
 *.DS_Store
 exp/*
 ablation/*
+cfg/llm_client/local/

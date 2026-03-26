@@ -1,0 +1,7 @@
+#//modify Local vLLM OpenAI-compatible endpoint for OpenPipe/Qwen3-14B-Instruct
+_target_: utils.llm_client.openai.OpenAIClient
+
+model: qwen3-14b-instruct-local
+temperature: 1.0
+api_key: ${oc.env:LOCAL_LLM_API_KEY,EMPTY}
+base_url: http://127.0.0.1:8000/v1
