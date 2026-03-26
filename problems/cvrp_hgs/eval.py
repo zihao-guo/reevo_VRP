@@ -7,9 +7,9 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tempfile
 from pathlib import Path
 
-import fcntl
 import yaml
 import pybind11
 
@@ -115,11 +115,11 @@ def ensure_pyvrp_built(pyvrp_root: Path, build_dir_name: str) -> None:
 def incremental_build_candidate(
     pyvrp_root: Path,
     build_dir_name: str,
-    original_cpp: Path,
     candidate_cpp: Path,
     candidate_code: str,
 ) -> None:
-    original_cpp.write_text(candidate_code + "\n", encoding="utf-8")
+    # //modify Candidate builds now happen inside per-candidate sandboxes, so we
+    # //modify only need to update the candidate plugin source file there.
     candidate_cpp.write_text(candidate_code + "\n", encoding="utf-8")
 
     cmd = [
@@ -168,6 +168,38 @@ def build_env() -> dict[str, str]:
         else str(purelib_dir)
     )
     return env
+
+
+def sandbox_problem_paths(paths: dict[str, Path], sandbox_pyvrp_root: Path) -> dict[str, Path]:
+    # //modify Re-point all PyVRP-local paths into a candidate-specific sandbox
+    # //modify so different candidates can build and evaluate concurrently.
+    source_root = paths["pyvrp_root"]
+    sandbox_paths = dict(paths)
+    sandbox_paths["pyvrp_root"] = sandbox_pyvrp_root
+    sandbox_paths["original_cpp"] = sandbox_pyvrp_root / paths["original_cpp"].relative_to(source_root)
+    sandbox_paths["candidate_cpp"] = sandbox_pyvrp_root / paths["candidate_cpp"].relative_to(source_root)
+    return sandbox_paths
+
+
+def clone_pyvrp_sandbox(shared_pyvrp_root: Path, sandbox_parent: Path) -> Path:
+    # //modify Copy a source-only PyVRP tree into an isolated sandbox so each
+    # //modify candidate gets its own build directory and plugin installation.
+    sandbox_root = sandbox_parent / shared_pyvrp_root.name
+    shutil.copytree(
+        shared_pyvrp_root,
+        sandbox_root,
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            "docs",
+            "examples",
+            "tests",
+            "build-*",
+        ),
+    )
+    return sandbox_root
 
 
 def solve_instance(
@@ -338,26 +370,21 @@ def main() -> None:
     instances = load_instances(paths)
     smoke_instance = cfg.get("smoke_test_instance", instances[0])
     smoke_timeout = int(cfg.get("smoke_test_timeout", 120))
-    if mood == "train":
-        instances = select_proxy_instances(instances, int(cfg["proxy_instance_count"]))
 
-    lock_path = paths["build_lock"]
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(lock_path, "w", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        ensure_pyvrp_built(paths["pyvrp_root"], cfg["pyvrp_build_dir"])
+    with tempfile.TemporaryDirectory(prefix="cvrp-hgs-pyvrp-") as sandbox_dir:
+        sandbox_root = Path(sandbox_dir)
+        sandbox_pyvrp_root = clone_pyvrp_sandbox(paths["pyvrp_root"], sandbox_root)
+        sandbox_paths = sandbox_problem_paths(paths, sandbox_pyvrp_root)
         incremental_build_candidate(
-            paths["pyvrp_root"],
+            sandbox_paths["pyvrp_root"],
             cfg["pyvrp_build_dir"],
-            paths["original_cpp"],
-            paths["candidate_cpp"],
+            sandbox_paths["candidate_cpp"],
             candidate_code,
         )
         try:
             smoke_result = run_smoke_test(
-                paths["pyvrp_root"],
-                paths["dataset_dir"],
+                sandbox_paths["pyvrp_root"],
+                sandbox_paths["dataset_dir"],
                 smoke_instance,
                 baseline_result(paths, smoke_instance),
                 cfg["round_func"],
@@ -365,7 +392,6 @@ def main() -> None:
                 smoke_timeout,
             )
         except Exception as exc:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
             print(f"[*] Anti-plagiarism similarity: {similarity:.6f}")
             print(f"[*] Smoke test instance: {smoke_instance}")
             print(f"[*] Smoke test failed: {exc}")
@@ -374,15 +400,14 @@ def main() -> None:
             return
 
         results = evaluate_instances(
-            paths["pyvrp_root"],
-            paths["dataset_dir"],
+            sandbox_paths["pyvrp_root"],
+            sandbox_paths["dataset_dir"],
             instances,
             paths,
             cfg["round_func"],
             int(cfg["seed"]),
             workers,
         )
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     summary = summarise(results)
     print(f"[*] Anti-plagiarism similarity: {similarity:.6f}")

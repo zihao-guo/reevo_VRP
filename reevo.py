@@ -1,5 +1,6 @@
 from typing import Optional
 import logging
+import re
 import subprocess
 import numpy as np
 import os
@@ -153,6 +154,7 @@ class ReEvo:
             "code_path": f"problem_iter{self.iteration}_code0.py",
             "code": code,
             "response_id": 0,
+            "ast": None,
         }
         if self._uses_specialized_cpp_pipeline():
             # //modify Persist each CVRP HGS candidate as a standalone C++ source file.
@@ -204,6 +206,7 @@ class ReEvo:
             "code_path": f"problem_iter{self.iteration}_code{response_id}.py",
             "code": code,
             "response_id": response_id,
+            "ast": None,
         }
         if self._uses_specialized_cpp_pipeline():
             # //modify Give each CVRP HGS candidate a unique .cpp path for compilation.
@@ -265,6 +268,8 @@ class ReEvo:
             traceback_msg = filter_traceback(stdout_str)
             
             individual = population[response_id]
+            ast_match = re.search(r"Anti-plagiarism similarity:\s*([0-9]+(?:\.[0-9]+)?)", stdout_str)
+            individual["ast"] = float(ast_match.group(1)) if ast_match else None
             # Store objective value for each individual
             if traceback_msg == '': # If execution has no error
                 try:
@@ -275,7 +280,8 @@ class ReEvo:
             else: # Otherwise, also provide execution traceback error feedback
                 population[response_id] = self.mark_invalid_individual(population[response_id], traceback_msg)
 
-            logging.info(f"Iteration {self.iteration}, response_id {response_id}: Objective value: {individual['obj']}")
+            ast_str = f"{individual['ast']:.6f}" if individual.get('ast') is not None else "None"
+            logging.info(f"Iteration {self.iteration}, response_id {response_id}: Ast: {ast_str}, Objective value: {individual['obj']}")
         return population
 
 
