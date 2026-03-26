@@ -1,0 +1,23 @@
+problem_name: cvrp_hgs
+problem_type: hgs
+obj_type: min
+problem_size: 58
+func_name: selectiveRouteExchange
+code_ext: cpp
+output_file: problems/cvrp_hgs/generated/selective_route_exchange.cpp
+dataset_dir: problems/cvrp_hgs/data/cvrp_x_le400
+baseline_dir: problems/cvrp_hgs/data/20260320_110714_500
+pyvrp_root: problems/cvrp_hgs/pyvrp_rep
+original_cpp: problems/cvrp_hgs/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp
+candidate_cpp: problems/cvrp_hgs/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange_candidate.cpp
+original_reference: problems/cvrp_hgs/data/selective_route_exchange.original.cpp
+build_lock: problems/cvrp_hgs/build.lock
+pyvrp_build_dir: build-reevo-cvrp-hgs-py311
+plagiarism_threshold: 0.95
+proxy_instance_count: 12
+parallel_workers_divisor: 2
+smoke_test_instance: X-n101-k25.vrp
+smoke_test_timeout: 120
+round_func: round
+seed: 0
+description: Improving full C++17 `selective_route_exchange.cpp` for PyVRP CVRP SREX; training uses a representative proxy subset and final validation uses all 58 instances against the recorded HGS baseline.

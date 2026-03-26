@@ -50,6 +50,6 @@ utils/start_local_vllm.sh
 MODEL_PATH="${ROOT_DIR}/cfg/llm_client/local/OpenPipe__Qwen3-14B-Instruct"
 SERVED_MODEL_NAME="qwen3-14b-instruct-local"
 PORT="8000"
-GPU_MEMORY_UTILIZATION="0.55"
+GPU_MEMORY_UTILIZATION="0.75"
 MAX_MODEL_LEN="8192"
 ```

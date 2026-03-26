@@ -9,7 +9,7 @@ SERVED_MODEL_NAME="qwen3-14b-instruct-local"
 HOST="127.0.0.1"
 PORT="8000"
 DTYPE="bfloat16"
-GPU_MEMORY_UTILIZATION="0.55"
+GPU_MEMORY_UTILIZATION="0.75"
 MAX_MODEL_LEN="8192"
 
 source "${VENV_PATH}/bin/activate"

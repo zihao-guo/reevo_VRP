@@ -1,0 +1,82 @@
+2026-03-26
+1. 计划先修改 `problems/cvrp_hgs/eval.py`，在完整评估开始前增加 `smoke test`，要求单实例超过 `120s` 直接判定跑不通。
+2. 已修改 `cfg/problem/cvrp_hgs.yaml`，补充：
+   - `smoke_test_instance: X-n101-k25.vrp`
+   - `smoke_test_timeout: 120`
+3. 运行命令：
+   - `cp problems/cvrp_hgs/data/selective_route_exchange.original.cpp /tmp/problem_iter0_candidate0_selective_route_exchange.cpp`
+   - `source .venv/bin/activate && python problems/cvrp_hgs/eval.py 58 /home/zguo/Coding/reevo_VRP train /tmp/problem_iter0_candidate0_selective_route_exchange.cpp`
+4. 结果：
+   - 第一个 `smoke test` 实例：`X-n101-k25.vrp`
+   - 第一个可行解相似度：`1.000000`
+   - 第一个可行解目标值：`27632`
+   - 第一个可行解运行时间：约 `3.000741s`
+   - 12 个代理实例平均 `delta_vs_baseline_obj = -0.5833333333333334`
+5. 运行 `source .venv/bin/activate && python -m py_compile problems/cvrp_hgs/eval.py problems/cvrp_hgs/reevo_hgs.py problems/cvrp_hgs/code_extraction.py problems/cvrp_hgs/anti_plagiarism.py main.py`，语法检查通过。
+6. 尝试运行 `./utils/start_local_vllm.sh`（脚本内 `GPU_MEMORY_UTILIZATION=0.55`），启动失败。
+7. 失败原因：
+   - `vllm` 报错 `No available memory for the cache blocks`
+   - 当前这套模型在本机上需要临时提高 `gpu_memory_utilization` 才能稳定启动；
+   - 保持脚本原样不修改，后续长跑改用直接命令行临时传更高值启动。
+8. 用户将 `vllm` 最大 GPU 占用约束改为 `0.75`，并要求尽可能不增加额外参数（如 `cpu_offload_gb`）。
+9. 运行命令：
+   - `source .venv/bin/activate && export LOCAL_LLM_API_KEY=EMPTY && vllm serve cfg/llm_client/local/OpenPipe__Qwen3-14B-Instruct --served-model-name qwen3-14b-instruct-local --host 127.0.0.1 --port 8000 --dtype bfloat16 --gpu-memory-utilization 0.75 --max-model-len 8192`
+10. 结果：
+   - 在不增加 `cpu_offload_gb` 的情况下，`0.75` 已成功启动；
+   - `vllm` 健康检查已可访问；
+   - 启动后 `nvidia-smi` 观测到总显存占用约 `42769 MiB`；`gpu_memory_utilization` 是 `vllm` 内部做 KV cache / executor 规划时使用的限制，不等于 `nvidia-smi` 上的最终总显存读数，但当前 `vllm` 已按 `0.75` 成功完成初始化且不再报错。
+11. 为便于复用，已同步修改：
+   - `utils/start_local_vllm.sh` 中的 `GPU_MEMORY_UTILIZATION="0.75"`
+   - `utils/README.md` 中对应说明也改为 `0.75`
+12. 验证完成后已停止本地 `vllm` 服务，释放 GPU 显存。
+13. 确认 `problems/cvrp_hgs/eval.py` 当前已在完整评估前执行 `smoke test`：
+   - 先在 `smoke_test_instance` 上做单实例可行性测试；
+   - 若超过 `120s` 仍未结束，则直接判定该候选跑不通；
+   - 训练模式下会输出 `inf`，避免拖住整轮演化。
+14. 计划重新发起 `population=16` 的正式演化，使用：
+   - `init_pop_size=16`
+   - `pop_size=16`
+   - `max_fe=257`
+15. 这里的 `max_fe=257` 对应 10 个完整演化循环：
+   - seed 评估 `1`
+   - 初始种群评估 `16`
+   - 每个完整循环包含 `16` 个 crossover 候选和 `8` 个 mutation 候选，共 `24`
+   - `1 + 16 + 10 * 24 = 257`
+16. 运行命令：
+   - `./utils/start_local_vllm.sh`
+17. 结果：
+   - `vllm` 已按 `GPU_MEMORY_UTILIZATION=0.75` 成功启动；
+   - 模型：`OpenPipe/Qwen3-14B-Instruct`
+   - 服务地址：`http://127.0.0.1:8000`
+18. 运行命令：
+   - `source .venv/bin/activate && export LOCAL_LLM_API_KEY=EMPTY && python main.py problem=cvrp_hgs llm_client=local init_pop_size=16 pop_size=16 max_fe=257 timeout=7200`
+19. 当前已完成的早期结果：
+   - 输出目录：`outputs/cvrp_hgs-hgs/2026-03-26_12-34-14`
+   - seed 候选已通过 `smoke test` 和代理集评估；
+   - 第一个可行解相似度：`1.000000`
+   - `smoke test` 实例：`X-n101-k25.vrp`
+   - `smoke test` 目标值：`27632`
+   - `smoke test` 运行时间：约 `2.999927s`
+   - seed 当前目标值：`-8.666666666666666`
+   - seed 代理集统计：`12/12` 可行，`3/12` 优于 baseline
+20. 继续演化过程中，已确认：
+   - `Iteration 1 finished`，累计 `Function Evals = 17`
+   - `Iteration 2 finished`，累计 `Function Evals = 33`
+   - `Iteration 3 finished`，累计 `Function Evals = 41`
+21. 在 `Iteration 4` 的候选评估中已出现更优个体：
+   - 当前观测到的改进目标值：`-42.916666666666664`
+   - 说明演化搜索已经超越 seed，不再只是回放原始算子
+22. 当前这次正式长跑仍在继续：
+   - 运行目录：`outputs/cvrp_hgs-hgs/2026-03-26_12-34-14`
+   - 已确认至少推进到 `Iteration 4` 的候选评估阶段
+   - 由于候选编译与代理集验证在共享构建锁下串行执行，`population=16` 时单轮耗时较长
+23. 最新进度检查结果：
+   - `vllm` 服务仍在运行；
+   - `main.py` 演化主进程仍在运行；
+   - 已完成到 `Iteration 7 finished`，累计 `Function Evals = 89`
+   - 当前最新最佳目标值：`-52.416666666666664`
+   - 当前最佳代码路径：`problem_iter5_response4.txt / problem_iter5_code4.py`
+24. 当前正在执行 `Iteration 8` 的候选评估：
+   - 已回收的候选目标值包括：`-38.666666666666664`、`-44.5`
+   - 也已有多条候选记为 `inf`
+   - `Iteration 8` 尚未全部结束，因此最佳值仍停留在 `-52.416666666666664`
