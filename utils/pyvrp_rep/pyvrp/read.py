@@ -193,15 +193,46 @@ class _InstanceParser:
         if "backhaul" not in self.instance:
             return np.zeros((self.num_locations, 1), dtype=np.int64)
 
+        # //modify VRPB stores BACKHAUL_SECTION as a list of 1-based client IDs
+        # //modify terminated by -1, not as per-node pickup amounts. Convert it
+        # //modify into a demand vector aligned with the node indices so the
+        # //modify rest of the reader can keep treating pickups generically.
+        if self.type() == "VRPB":
+            pickup = np.zeros(self.num_locations, dtype=np.int64)
+            demand = np.asarray(self.instance.get("demand", pickup), dtype=np.int64)
+            client_ids = np.asarray(self.instance["backhaul"], dtype=np.int64).reshape(-1)
+
+            for client_id in client_ids:
+                if client_id <= 0:
+                    continue
+
+                pickup[client_id - 1] = demand[client_id - 1]
+
+            return self.round_func(pickup)
+
         return self.round_func(self.instance["backhaul"])
 
     def demands(self) -> np.ndarray:
         if "demand" not in self.instance and "linehaul" not in self.instance:
             return np.zeros((self.num_locations, 1), dtype=np.int64)
 
-        return self.round_func(
-            self.instance.get("demand", self.instance.get("linehaul"))
-        )
+        demand = np.asarray(self.instance.get("demand", self.instance.get("linehaul")))
+
+        # //modify Split VRPB demand into delivery for linehauls and pickup for
+        # //modify backhauls so PyVRP receives the expected ProblemData loads.
+        if self.type() == "VRPB" and "backhaul" in self.instance:
+            delivery = demand.copy()
+            client_ids = np.asarray(self.instance["backhaul"], dtype=np.int64).reshape(-1)
+
+            for client_id in client_ids:
+                if client_id <= 0:
+                    continue
+
+                delivery[client_id - 1] = 0
+
+            return self.round_func(delivery)
+
+        return self.round_func(demand)
 
     def coords(self) -> np.ndarray:
         if "node_coord" not in self.instance:
