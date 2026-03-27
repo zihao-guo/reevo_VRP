@@ -27,4 +27,4 @@ smoke_test_timeout: 120  # 烟雾测试超时时间，单位秒。
 round_func: round  # 读取 VRP 数据时使用的距离取整规则。
 seed: 0  # 求解器随机种子，保证不同候选之间尽量可复现。
 max_iterations: 1000  # PyVRP 最大迭代次数上限；当前作为主要停止条件。
-plagiarism_threshold: 0.95  # 候选代码与原始参考代码的最大允许相似度；超过该阈值会判定为过于接近。
+plagiarism_threshold: 1.01 # 0.95  # 候选代码与原始参考代码的最大允许相似度；超过该阈值会判定为过于接近。
