@@ -28,7 +28,7 @@
    - seed 基线与最终 `gpt.py` 回放不启用拒绝式反抄袭，但仍记录相似度。
 
 12. 安装 `meson`、`docblock`、`vrplib`、`matplotlib` 和新版 `pybind11==2.13.6`，并修正 `eval.py` 的构建环境，使 Meson 优先使用 `.venv` 内的 pybind11。
-13. 清理被系统旧版 pybind11 污染过的 `problems/cvrp_hgs/pyvrp_rep/build-reevo-cvrp-hgs-py311`，准备重新配置构建。
+13. 清理被系统旧版 pybind11 污染过的 `utils/pyvrp_rep/build-reevo-cvrp-hgs-py311`，准备重新配置构建。
 
 14. 使用原始 `selective_route_exchange.cpp` 作为 seed 候选运行 `problems/cvrp_hgs/eval.py train`，完成 Python 3.11 版 PyVRP 构建、候选 C++ 增量编译和 12 个代理实例并行验证，链路跑通。
 15. seed 代理集结果：`avg_obj_ratio_vs_baseline = 5.833333333333333`，`feasible = 12/12`，`improved = 1/12`。

@@ -9,6 +9,7 @@ import sys
 import sysconfig
 import tempfile
 from pathlib import Path
+from functools import lru_cache
 
 import yaml
 import pybind11
@@ -24,6 +25,8 @@ if str(PROBLEM_DIR) not in sys.path:
 
 from anti_plagiarism import assert_below_threshold  # noqa: E402
 from code_extraction import extract_cpp_code  # noqa: E402
+
+VRP_FILE_SCALE = 1000
 
 
 def load_problem_cfg(root_dir: Path) -> dict:
@@ -64,10 +67,7 @@ def should_enforce_plagiarism(candidate_path: str | None) -> bool:
 
 
 def load_instances(paths: dict[str, Path]) -> list[str]:
-    run_meta_path = paths["baseline_dir"] / "run_meta.json"
-    with open(run_meta_path, "r", encoding="utf-8") as file:
-        meta = json.load(file)
-    return meta["instances"]
+    return sorted(path.name for path in paths["dataset_dir"].glob("*.vrp"))
 
 
 def select_proxy_instances(instances: list[str], count: int) -> list[str]:
@@ -85,9 +85,97 @@ def select_proxy_instances(instances: list[str], count: int) -> list[str]:
 
 def baseline_result(paths: dict[str, Path], instance_name: str) -> dict:
     stem = Path(instance_name).stem
-    result_path = paths["baseline_dir"] / stem / "result.json"
-    with open(result_path, "r", encoding="utf-8") as file:
-        return json.load(file)
+    pyvrp_reference = load_reference_solution(
+        preferred_path=paths["baseline_dir"] / "pyvrp" / f"{stem}.sol",
+        fallback_paths=[
+            paths["baseline_dir"] / "pyvrp" / f"{stem}.pyvrp.sol",
+            paths["baseline_dir"] / f"{stem}.pyvrp.sol",
+        ],
+    )
+    ortools_reference = load_reference_solution(
+        preferred_path=paths["baseline_dir"] / "ortools" / f"{stem}.sol",
+        fallback_paths=[
+            paths["baseline_dir"] / "ortools" / f"{stem}.ortools.sol",
+            paths["baseline_dir"] / f"{stem}.ortools.sol",
+        ],
+    )
+    return {
+        "obj": pyvrp_reference["cost"],
+        "solver_runtime_seconds": pyvrp_reference["runtime_seconds"],
+        "ortools_obj": ortools_reference["cost"],
+        "ortools_runtime_seconds": ortools_reference["runtime_seconds"],
+    }
+
+
+def load_reference_solution(
+    preferred_path: Path,
+    fallback_paths: list[Path] | None = None,
+) -> dict[str, float]:
+    candidate_paths = [preferred_path]
+    if fallback_paths:
+        candidate_paths.extend(fallback_paths)
+
+    solution_path = next((path for path in candidate_paths if path.exists()), None)
+    if solution_path is None:
+        searched = ", ".join(f"`{path}`" for path in candidate_paths)
+        raise FileNotFoundError(f"Reference solution not found. Searched: {searched}.")
+
+    cost = None
+    runtime_seconds = None
+
+    with open(solution_path, "r", encoding="utf-8") as file:
+        for raw_line in file:
+            line = raw_line.strip()
+            if line.startswith("Cost "):
+                cost = float(line.split()[1])
+            elif line.startswith("Time "):
+                runtime_seconds = float(line.split()[1].removesuffix("s"))
+
+    if cost is None or runtime_seconds is None:
+        raise ValueError(f"Failed to parse Cost/Time from `{solution_path}`.")
+
+    return {"cost": cost, "runtime_seconds": runtime_seconds}
+
+
+def calculate_exact_cvrp_cost(instance_path: Path, routes) -> float:
+    coords: dict[int, tuple[float, float]] = {}
+    in_coord_section = False
+
+    with open(instance_path, "r", encoding="utf-8") as file:
+        for raw_line in file:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line == "NODE_COORD_SECTION":
+                in_coord_section = True
+                continue
+
+            if line == "DEMAND_SECTION":
+                break
+
+            if in_coord_section:
+                node_idx, x_coord, y_coord = line.split()
+                coords[int(node_idx)] = (
+                    int(x_coord) / VRP_FILE_SCALE,
+                    int(y_coord) / VRP_FILE_SCALE,
+                )
+
+    if 1 not in coords:
+        raise ValueError(f"Failed to parse depot coordinates from `{instance_path}`.")
+
+    total_cost = 0.0
+    for route in routes:
+        # //modify PyVRP's VRPLIB reader stores depot at index 0, so client
+        # //modify visits must shift by +1 to match the original file numbering.
+        visits = [visit + 1 for visit in route.visits()]
+        sequence = [1, *visits, 1]
+        for frm, to in zip(sequence[:-1], sequence[1:]):
+            x1, y1 = coords[frm]
+            x2, y2 = coords[to]
+            total_cost += math.hypot(x1 - x2, y1 - y2)
+
+    return total_cost
 
 
 def ensure_pyvrp_built(pyvrp_root: Path, build_dir_name: str) -> None:
@@ -95,7 +183,7 @@ def ensure_pyvrp_built(pyvrp_root: Path, build_dir_name: str) -> None:
     expected = pyvrp_root / "pyvrp" / f"_pyvrp{ext_suffix}"
     build_dir = pyvrp_root / build_dir_name
 
-    if build_dir_uses_old_pybind11(build_dir):
+    if build_dir_uses_old_pybind11(build_dir) or build_dir_source_mismatch(build_dir, pyvrp_root):
         shutil.rmtree(build_dir, ignore_errors=True)
 
     if expected.exists() and build_dir.exists():
@@ -142,6 +230,29 @@ def build_dir_uses_old_pybind11(build_dir: Path) -> bool:
     return "Run-time dependency pybind11 found: YES 2.9.1" in content
 
 
+def build_dir_source_mismatch(build_dir: Path, pyvrp_root: Path) -> bool:
+    intro_path = build_dir / "meson-info" / "intro-buildsystem_files.json"
+    if not intro_path.exists():
+        return False
+
+    try:
+        buildsystem_files = json.loads(intro_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    root_prefix = str(pyvrp_root.resolve()) + os.sep
+    for entry in buildsystem_files:
+        if not isinstance(entry, str):
+            continue
+        if not entry.endswith(("meson.build", "pyproject.toml")):
+            continue
+        resolved = str(Path(entry).resolve(strict=False))
+        if not resolved.startswith(root_prefix):
+            return True
+
+    return False
+
+
 def build_env() -> dict[str, str]:
     # //modify Force Meson/CMake/pkg-config to resolve pybind11 from the active .venv.
     env = os.environ.copy()
@@ -168,6 +279,24 @@ def build_env() -> dict[str, str]:
         else str(purelib_dir)
     )
     return env
+
+
+@lru_cache(maxsize=4)
+def ensure_local_pyvrp_import(pyvrp_root: Path) -> Path:
+    pyvrp_root = pyvrp_root.resolve()
+    if str(pyvrp_root) not in sys.path:
+        sys.path.insert(0, str(pyvrp_root))
+
+    import pyvrp
+
+    imported_from = Path(pyvrp.__file__).resolve()
+    if pyvrp_root not in imported_from.parents:
+        raise ImportError(
+            "Imported `pyvrp` from an unexpected location. "
+            f"Expected under {pyvrp_root}, got {imported_from}."
+        )
+
+    return imported_from
 
 
 def sandbox_problem_paths(paths: dict[str, Path], sandbox_pyvrp_root: Path) -> dict[str, Path]:
@@ -209,33 +338,36 @@ def solve_instance(
     baseline: dict,
     round_func: str,
     seed: int,
+    max_iterations: int,
 ) -> dict:
-    if str(pyvrp_root) not in sys.path:
-        sys.path.insert(0, str(pyvrp_root))
+    ensure_local_pyvrp_import(pyvrp_root)
 
     os.environ["PYVRP_SREX_USE_PLUGIN"] = "1"
 
     from pyvrp.read import read
     from pyvrp.solve import SolveParams, solve
-    from pyvrp.stop import MaxRuntime
+    from pyvrp.stop import MaxIterations
 
     data = read(dataset_dir / instance_name, round_func)
     result = solve(
         data,
-        MaxRuntime(float(baseline["solver_runtime_seconds"])),
+        MaxIterations(max_iterations),
         seed=seed,
         collect_stats=False,
         display=False,
         params=SolveParams(),
     )
 
-    obj = float(result.cost())
+    obj = calculate_exact_cvrp_cost(dataset_dir / instance_name, result.best.routes())
     feasible = result.is_feasible() and math.isfinite(obj)
     if not feasible:
-        obj = float(baseline["obj"]) + max(100000.0, float(baseline["optimal_cost"]) * 10.0)
+        obj = float(baseline["obj"]) + max(100000.0, float(baseline["obj"]) * 10.0)
 
     baseline_obj = float(baseline["obj"])
-    # //modify Optimise against baseline by delta gap percentage instead of raw objective difference.
+    baseline_runtime = float(baseline["solver_runtime_seconds"])
+    ortools_obj = float(baseline["ortools_obj"])
+    ortools_runtime = float(baseline["ortools_runtime_seconds"])
+    # //modify Optimise against the original HGS baseline stored under data/opt/CVRP/101/pyvrp.
     delta_gap_percent_vs_baseline = ((obj / baseline_obj) - 1.0) * 100.0
 
     return {
@@ -244,10 +376,13 @@ def solve_instance(
         "obj": obj,
         "runtime": float(result.runtime),
         "baseline_obj": baseline_obj,
-        "optimal_cost": float(baseline["optimal_cost"]),
+        "baseline_runtime": baseline_runtime,
+        "ortools_obj": ortools_obj,
+        "ortools_runtime": ortools_runtime,
         "delta_gap_percent_vs_baseline": delta_gap_percent_vs_baseline,
-        "gap_percent": ((obj - float(baseline["optimal_cost"])) / float(baseline["optimal_cost"])) * 100.0,
-        "baseline_gap_percent": float(baseline["optimal_gap_percent"]),
+        "delta_runtime_seconds_vs_baseline": float(result.runtime) - baseline_runtime,
+        "delta_gap_percent_vs_ortools": ((obj / ortools_obj) - 1.0) * 100.0,
+        "delta_runtime_seconds_vs_ortools": float(result.runtime) - ortools_runtime,
     }
 
 
@@ -269,11 +404,12 @@ def run_smoke_test(
     baseline: dict,
     round_func: str,
     seed: int,
+    max_iterations: int,
     timeout_seconds: int,
 ) -> dict:
     ctx = mp.get_context("spawn")
     queue = ctx.Queue()
-    args = (pyvrp_root, dataset_dir, instance_name, baseline, round_func, seed)
+    args = (pyvrp_root, dataset_dir, instance_name, baseline, round_func, seed, max_iterations)
     process = ctx.Process(target=_smoke_worker, args=(queue, args))
     process.start()
     process.join(timeout_seconds)
@@ -303,11 +439,12 @@ def evaluate_instances(
     paths: dict[str, Path],
     round_func: str,
     seed: int,
+    max_iterations: int,
     workers: int,
 ) -> list[dict]:
     baselines = [baseline_result(paths, instance) for instance in instances]
     args = [
-        (pyvrp_root, dataset_dir, instance, baseline, round_func, seed)
+        (pyvrp_root, dataset_dir, instance, baseline, round_func, seed, max_iterations)
         for instance, baseline in zip(instances, baselines)
     ]
 
@@ -325,8 +462,13 @@ def summarise(results: list[dict]) -> dict:
     avg_obj = sum(result["obj"] for result in results) / count
     avg_runtime = sum(result["runtime"] for result in results) / count
     avg_delta_gap = sum(result["delta_gap_percent_vs_baseline"] for result in results) / count
-    avg_gap = sum(result["gap_percent"] for result in results) / count
-    avg_baseline_gap = sum(result["baseline_gap_percent"] for result in results) / count
+    avg_delta_runtime_baseline = (
+        sum(result["delta_runtime_seconds_vs_baseline"] for result in results) / count
+    )
+    avg_delta_gap_ortools = sum(result["delta_gap_percent_vs_ortools"] for result in results) / count
+    avg_delta_runtime_ortools = (
+        sum(result["delta_runtime_seconds_vs_ortools"] for result in results) / count
+    )
     return {
         "count": count,
         "feasible_count": feasible,
@@ -334,8 +476,9 @@ def summarise(results: list[dict]) -> dict:
         "avg_obj": avg_obj,
         "avg_runtime": avg_runtime,
         "avg_delta_gap_percent_vs_baseline": avg_delta_gap,
-        "avg_gap_percent": avg_gap,
-        "avg_baseline_gap_percent": avg_baseline_gap,
+        "avg_delta_runtime_seconds_vs_baseline": avg_delta_runtime_baseline,
+        "avg_delta_gap_percent_vs_ortools": avg_delta_gap_ortools,
+        "avg_delta_runtime_seconds_vs_ortools": avg_delta_runtime_ortools,
     }
 
 
@@ -373,6 +516,7 @@ def main() -> None:
     instances = load_instances(paths)
     smoke_instance = cfg.get("smoke_test_instance", instances[0])
     smoke_timeout = int(cfg.get("smoke_test_timeout", 120))
+    max_iterations = int(cfg.get("max_iterations", 1000))
 
     with tempfile.TemporaryDirectory(prefix="cvrp-hgs-pyvrp-") as sandbox_dir:
         sandbox_root = Path(sandbox_dir)
@@ -392,6 +536,7 @@ def main() -> None:
                 baseline_result(paths, smoke_instance),
                 cfg["round_func"],
                 int(cfg["seed"]),
+                max_iterations,
                 smoke_timeout,
             )
         except Exception as exc:
@@ -409,6 +554,7 @@ def main() -> None:
             paths,
             cfg["round_func"],
             int(cfg["seed"]),
+            max_iterations,
             workers,
         )
 
@@ -421,14 +567,15 @@ def main() -> None:
     print(f"[*] Instances evaluated: {summary['count']}")
     print(f"[*] Feasible solutions: {summary['feasible_count']}/{summary['count']}")
     print(f"[*] Improved over baseline: {summary['improved_count']}/{summary['count']}")
-    print(f"[*] Average objective: {summary['avg_obj']:.2f}")
-    print(f"[*] Average delta gap vs baseline (%): {summary['avg_delta_gap_percent_vs_baseline']:.2f}")
-    print(f"[*] Average runtime seconds: {summary['avg_runtime']:.2f}")
-    print(f"[*] Average optimal gap percent: {summary['avg_gap_percent']:.2f}")
-    print(f"[*] Baseline average optimal gap percent: {summary['avg_baseline_gap_percent']:.2f}")
+    print(f"[*] Average objective: {summary['avg_obj']:.6f}")
+    print(f"[*] Average delta gap vs baseline (%): {summary['avg_delta_gap_percent_vs_baseline']:.6f}")
+    print(f"[*] Average delta runtime vs baseline (s): {summary['avg_delta_runtime_seconds_vs_baseline']:.6f}")
+    print(f"[*] Average runtime seconds: {summary['avg_runtime']:.6f}")
+    print(f"[*] Average delta gap vs OR-Tools (%): {summary['avg_delta_gap_percent_vs_ortools']:.6f}")
+    print(f"[*] Average delta runtime vs OR-Tools (s): {summary['avg_delta_runtime_seconds_vs_ortools']:.6f}")
 
     if mood == "train":
-        print(f"{summary['avg_delta_gap_percent_vs_baseline']:.2f}")
+        print(f"{summary['avg_delta_gap_percent_vs_baseline']:.6f}")
 
 
 if __name__ == "__main__":

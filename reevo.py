@@ -4,6 +4,7 @@ import re
 import subprocess
 import numpy as np
 import os
+import sys
 from omegaconf import DictConfig
 
 from utils.utils import *
@@ -207,6 +208,7 @@ class ReEvo:
             "code": code,
             "response_id": response_id,
             "ast": None,
+            "avg_runtime": None,
         }
         if self._uses_specialized_cpp_pipeline():
             # //modify Give each CVRP HGS candidate a unique .cpp path for compilation.
@@ -270,6 +272,13 @@ class ReEvo:
             individual = population[response_id]
             ast_match = re.search(r"Anti-plagiarism similarity:\s*([0-9]+(?:\.[0-9]+)?)", stdout_str)
             individual["ast"] = float(ast_match.group(1)) if ast_match else None
+            avg_runtime_match = re.search(
+                r"Average runtime seconds:\s*([0-9]+(?:\.[0-9]+)?)",
+                stdout_str,
+            )
+            individual["avg_runtime"] = (
+                float(avg_runtime_match.group(1)) if avg_runtime_match else None
+            )
             # Store objective value for each individual
             if traceback_msg == '': # If execution has no error
                 try:
@@ -281,7 +290,16 @@ class ReEvo:
                 population[response_id] = self.mark_invalid_individual(population[response_id], traceback_msg)
 
             ast_str = f"{individual['ast']:.6f}" if individual.get('ast') is not None else "None"
-            logging.info(f"Iteration {self.iteration}, response_id {response_id}: Ast: {ast_str}, Objective value: {individual['obj']}")
+            avg_runtime_str = (
+                f"{individual['avg_runtime']:.6f}"
+                if individual.get("avg_runtime") is not None
+                else "None"
+            )
+            logging.info(
+                f"Iteration {self.iteration}, response_id {response_id}: "
+                f"Ast: {ast_str}, Avg.running time: {avg_runtime_str}, "
+                f"Objective value: {individual['obj']}"
+            )
         return population
 
 
@@ -291,7 +309,7 @@ class ReEvo:
         """
         logging.debug(f"Iteration {self.iteration}: Processing Code Run {response_id}")
         eval_file_path = f'{self.root_dir}/problems/{self.problem}/eval.py' if self.problem_type != "black_box" else f'{self.root_dir}/problems/{self.problem}/eval_black_box.py'
-        process_args = ['python', '-u', eval_file_path, f'{self.problem_size}', self.root_dir, "train"]
+        process_args = [sys.executable, '-u', eval_file_path, f'{self.problem_size}', self.root_dir, "train"]
 
         if self._uses_specialized_cpp_pipeline():
             # //modify Compile CVRP HGS candidates from dedicated C++ files instead of overwriting gpt.py.

@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import numpy as np
+import sys
 
 from utils.utils import *
 
@@ -192,7 +193,7 @@ class AEL:
 
         # Execute the python file with flags
         with open(individual["stdout_filepath"], 'w') as f:
-            process = subprocess.Popen(['python', '-u', f'{self.root_dir}/problems/{self.problem}/eval.py', f'{self.problem_size}', self.root_dir, "train"],
+            process = subprocess.Popen([sys.executable, '-u', f'{self.root_dir}/problems/{self.problem}/eval.py', f'{self.problem_size}', self.root_dir, "train"],
                                         stdout=f, stderr=f)
 
         block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration, response_id=response_id)

@@ -3,6 +3,7 @@ import logging
 import os
 from pathlib import Path
 import subprocess
+import sys
 from utils.utils import init_client, print_hyperlink
 
 
@@ -58,7 +59,7 @@ def main(cfg):
     with open(test_script_stdout, 'w', encoding="utf-8") as stdout:
         env = os.environ.copy()
         env["REEVO_GENERATED_OUTPUT"] = str(final_cpp_output)
-        subprocess.run(["python", test_script, "-1", ROOT_DIR, "val"], stdout=stdout, env=env)
+        subprocess.run([sys.executable, test_script, "-1", ROOT_DIR, "val"], stdout=stdout, env=env)
     logging.info(f"Final generated code saved to: {print_hyperlink(final_cpp_output)}")
     logging.info(f"Validation script finished. Results are saved in {print_hyperlink(test_script_stdout)}.")
     

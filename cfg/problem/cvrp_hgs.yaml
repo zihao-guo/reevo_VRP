@@ -1,22 +1,32 @@
+# Task identity and objective
 problem_name: cvrp_hgs  # 问题名称，用于在框架里标识这个任务。
 problem_type: hgs  # 问题类别，这里表示基于 HGS/PyVRP 的求解任务。
+description: Improving full C++17 `selective_route_exchange.cpp` for PyVRP's selective route exchange (SREX) crossover on CVRP instances; training and validation both use all 50 generated CVRP-101 instances against the original HGS reference in `data/opt/CVRP/101/pyvrp` and the OR-Tools reference in `data/opt/CVRP/101/ortools`.  # 任务说明。
 obj_type: min  # 优化目标方向，min 表示目标值越小越好。
-problem_size: 58  # 数据集实例总数；final 验证默认会评估这 58 个实例。
+problem_size: 50  # 数据集实例总数；final 验证默认会评估这 50 个实例。
+
+# Optimisation target and generated artefacts
 func_name: selectiveRouteExchange  # 需要优化/替换的核心 C++ 函数名。
 code_ext: cpp  # 候选代码文件扩展名。
 output_file: problems/cvrp_hgs/generated/selective_route_exchange.cpp  # 未显式传 candidate 时，提取出的代码会写到这里。
-dataset_dir: problems/cvrp_hgs/data/cvrp_x_le400  # CVRP 数据集目录。
-baseline_dir: problems/cvrp_hgs/data/20260320_110714_500  # 基线结果目录，包含每个实例的目标值、耗时等对照数据。
-pyvrp_root: problems/cvrp_hgs/pyvrp_rep  # PyVRP 副本根目录；评测时会从这里复制源码到临时沙箱。
-original_cpp: problems/cvrp_hgs/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp  # 原始实现文件路径。
-candidate_cpp: problems/cvrp_hgs/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange_candidate.cpp  # 候选实现写入到这个文件，再触发增量编译。
+original_cpp: utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp  # 原始实现文件路径。
+candidate_cpp: utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange_candidate.cpp  # 候选实现写入到这个文件，再触发增量编译。
 original_reference: problems/cvrp_hgs/data/selective_route_exchange.original.cpp  # 原始参考代码，用于相似度/抄袭检测。
-build_lock: problems/cvrp_hgs/build.lock  # 构建锁文件路径，用于避免并发构建互相干扰。
+
+# Data, baselines, and source tree
+dataset_dir: data/generated/CVRP/101  # CVRP 数据集目录。
+baseline_dir: data/opt/CVRP/101  # 对照结果根目录；当前使用 `pyvrp/<instance>.sol` 作为 original HGS reference，`ortools/<instance>.sol` 作为 OR-Tools reference。
+pyvrp_root: utils/pyvrp_rep  # PyVRP 副本根目录；评测时会从这里复制源码到临时沙箱。
+
+# Build and evaluation execution
 pyvrp_build_dir: build-reevo-cvrp-hgs-py311  # Meson/Ninja 构建目录名；当前固定使用 Python 3.11 对应的 build。
-plagiarism_threshold: 0.95  # 候选代码与原始参考代码的最大允许相似度；超过该阈值会判定为过于接近。
+build_lock: problems/cvrp_hgs/build.lock  # 构建锁文件路径，用于避免并发构建互相干扰。
 parallel_workers_divisor: 2  # 并行评测进程数 = CPU 核数 // 2；值越小并发越高，值越大越保守。
-smoke_test_instance: X-n101-k25.vrp  # 正式批量评测前先跑的烟雾测试实例，用来快速发现编译/运行问题。
+smoke_test_instance: n101-0001.vrp  # 正式批量评测前先跑的烟雾测试实例，用来快速发现编译/运行问题。
 smoke_test_timeout: 120  # 烟雾测试超时时间，单位秒。
+
+# Reproducibility and search limits
 round_func: round  # 读取 VRP 数据时使用的距离取整规则。
 seed: 0  # 求解器随机种子，保证不同候选之间尽量可复现。
-description: Improving full C++17 `selective_route_exchange.cpp` for PyVRP CVRP SREX; training and validation both use all 58 instances against the recorded HGS baseline.  # 任务说明。
+max_iterations: 1000  # PyVRP 最大迭代次数上限；当前作为主要停止条件。
+plagiarism_threshold: 0.95  # 候选代码与原始参考代码的最大允许相似度；超过该阈值会判定为过于接近。

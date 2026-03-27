@@ -32,3 +32,40 @@
     - 使用 `cfg/llm_client/local.yaml` 和 `utils/start_local_vllm.sh` 的本地模型方式。
 20. 更新 `utils/README.md`，在“本地模型方式运行”中补充说明：需要先将模型拉取到 `reevo_VRP/cfg/llm_client/local`。
 21. 更新 `.gitignore`，忽略 `cfg/llm_client/local/`，避免提交本地模型目录。
+22. 修改 `cfg/problem/cvrp_hgs.yaml`：
+    - 将 `dataset_dir` 从旧的 `problems/cvrp_hgs/data/cvrp_x_le400` 改为 `data/generated/CVRP/101`；
+    - 将 `baseline_dir` 从旧的 HGS JSON 基线目录改为 `data/opt/CVRP/101`；
+    - 将 `problem_size` 调整为当前目录实际实例数 `50`；
+    - 将 `smoke_test_instance` 改为 `n101-0001.vrp`；
+    - 新增 `max_iterations: 1000`，把 PyVRP 最大迭代次数从 `pyvrp_rep` 调整为问题配置参数。
+23. 修改 `problems/cvrp_hgs/eval.py`，把实例来源从 `baseline_dir/run_meta.json` 改为直接扫描 `dataset_dir/*.vrp`，以适配 `data/generated/CVRP/101` 的新数据组织方式。
+24. 修改 `problems/cvrp_hgs/eval.py`，新增对 `data/opt/CVRP/101/*.pyvrp.sol` 与 `*.ortools.sol` 的 `Cost`/`Time` 解析逻辑，替代旧的 `result.json` 读取方式。
+25. 修改 `problems/cvrp_hgs/eval.py`，去掉依赖 ground truth 的 `optimal_cost` / `optimal_gap_percent` 统计，保留训练使用的 `avg delta gap vs baseline (%)`，并新增：
+    - `avg delta runtime vs baseline (s)`；
+    - `avg delta gap vs OR-Tools (%)`；
+    - `avg delta runtime vs OR-Tools (s)`。
+26. 修改 `problems/cvrp_hgs/eval.py`，在求解时使用 `MaxRuntime(baseline_time)` 与 `MaxIterations(max_iterations)` 的联合停止条件，确保运行时上限与迭代上限都受 YAML 控制。
+27. 计划先执行 `python -m py_compile` 做语法检查，再用本地 `local` 模型配置跑通 `cvrp_hgs` 的最小 smoke 链路，确认评估脚本输出无误后，再启动与 `cfg/problem/cvrp_hgs.yaml` 一致的全量测试。
+28. 第一次直接执行 `source .venv/bin/activate && python problems/cvrp_hgs/eval.py 50 /home/zguo/Coding/reevo train` 后，发现 `obj` 被放大到约 `1000x`，定位原因是：
+    - `eval.py` 直接读取了 PyVRP 内部整数代价；
+    - 参考 `.pyvrp.sol/.ortools.sol` 的 `Cost` 实际来自 `data/utils/solve_reference_pyvrp.py` / `solve_reference_ortools.py`，它们会先按 `file_scale=1000` 还原坐标，再按欧氏长度重算。
+29. 二次修正 `problems/cvrp_hgs/eval.py`：
+    - 新增 `calculate_exact_cvrp_cost()`，直接从 `.vrp` 解析坐标并重算路线长度；
+    - 确认 `read()` 读出的 `route.visits()` 需要 `+1` 才能对齐参考 `.sol` 的客户编号；
+    - 修正后 `n101-0001` 的 smoke 结果从错误的 `59.267875` 对齐到 `17.136343`，与参考 `16.983632` 处于同一口径。
+30. 修正后重新执行 `source .venv/bin/activate && python problems/cvrp_hgs/eval.py 50 /home/zguo/Coding/reevo train`，结果通过：
+    - smoke instance: `n101-0001.vrp`
+    - feasible: `50/50`
+    - avg delta gap vs baseline (%): `0.11`
+    - avg delta runtime vs baseline (s): `-3.79`
+    - avg delta gap vs OR-Tools (%): `-5.48`
+    - avg delta runtime vs OR-Tools (s): `-12.72`
+31. 启动本地 `vLLM` 服务 `./utils/start_local_vllm.sh`，确认 `http://127.0.0.1:8000/v1/models` 可返回 `qwen3-14b-instruct-local`，本地 `local` 模型链路可用。
+32. 使用本地模型执行最小端到端 smoke：
+    - `source .venv/bin/activate && export LOCAL_LLM_API_KEY=EMPTY && python main.py problem=cvrp_hgs llm_client=local init_pop_size=1 pop_size=1 max_fe=2 timeout=1800`
+    - 运行目录：`outputs/cvrp_hgs-hgs/2026-03-26_20-25-25`
+    - seed/validation 都已通过；validation 输出继续保持新统计口径，`avg delta gap vs baseline (%)` 约为 `0.11`。
+33. 最小 smoke 确认无误后，已按仓库现有正式命令启动本地模型全量演化测试：
+    - `source .venv/bin/activate && export LOCAL_LLM_API_KEY=EMPTY && python main.py problem=cvrp_hgs llm_client=local init_pop_size=16 pop_size=16 max_fe=257 timeout=7200`
+    - 当前运行目录：`outputs/cvrp_hgs-hgs/2026-03-26_20-28-41`
+    - 该进程已经进入 seed 候选评估阶段，说明全量测试已成功开始。

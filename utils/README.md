@@ -38,6 +38,24 @@ export LOCAL_LLM_API_KEY=EMPTY
 python main.py problem=tsp_gls llm_client=local init_pop_size=1 pop_size=1 max_fe=2 timeout=300
 ```
 
+如果运行 `cvrp_hgs`，推荐直接把所有 Hydra 参数写在同一行，尤其是 `timeout=...`，不要单独换行成另一条 shell 命令。
+
+`cvrp_hgs` 最小冒烟：
+
+```bash
+source .venv/bin/activate
+export LOCAL_LLM_API_KEY=EMPTY
+python main.py problem=cvrp_hgs llm_client=local init_pop_size=1 pop_size=1 max_fe=2 timeout=1800
+```
+
+`cvrp_hgs` 正式演化：
+
+```bash
+source .venv/bin/activate
+export LOCAL_LLM_API_KEY=EMPTY
+python main.py problem=cvrp_hgs llm_client=local init_pop_size=16 pop_size=16 max_fe=257 timeout=7200
+```
+
 本地 vLLM 启动脚本位置：
 
 ```bash

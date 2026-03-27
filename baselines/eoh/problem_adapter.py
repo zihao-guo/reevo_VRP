@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 import re
+import sys
 
 from utils.utils import block_until_running, file_to_string, filter_traceback
 
@@ -136,7 +137,7 @@ class Problem:
                 # Execute the python file with flags
                 with open(individual["stdout_filepath"], 'w') as f:
                     file_path = f'{self.root_dir}/problems/{self.problem}/eval.py' if self.problem_type != "black_box" else f'{self.root_dir}/problems/{self.problem}/eval_black_box.py'
-                    inner_run = process = subprocess.Popen(['python', '-u', file_path, f'{self.problem_size}', self.root_dir, "train"], stdout=f, stderr=f)
+                    inner_run = process = subprocess.Popen([sys.executable, '-u', file_path, f'{self.problem_size}', self.root_dir, "train"], stdout=f, stderr=f)
                 
                 block_until_running(individual["stdout_filepath"], log_status=True)
                 inner_runs.append(process)
