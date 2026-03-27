@@ -1,6 +1,8 @@
 from typing import Optional
 import logging
 import re
+# //modify Archive successful CVRP HGS candidates into DONE/.
+import shutil
 import subprocess
 import numpy as np
 import os
@@ -208,6 +210,7 @@ class ReEvo:
             "code": code,
             "response_id": response_id,
             "ast": None,
+            # //modify Track parsed average runtime for CVRP HGS evaluations.
             "avg_runtime": None,
         }
         if self._uses_specialized_cpp_pipeline():
@@ -225,6 +228,35 @@ class ReEvo:
         individual["obj"] = float("inf")
         individual["traceback_msg"] = traceback_msg
         return individual
+
+    def _archive_successful_candidate(self, individual: dict) -> None:
+        """
+        Move successful C++ candidates into DONE/ and write a metrics sidecar.
+        """
+        # //modify Archive only applies to the standalone C++ CVRP HGS pipeline.
+        if not self._uses_specialized_cpp_pipeline():
+            return
+
+        candidate_path = individual.get("candidate_path")
+        # //modify Skip archiving when the candidate file is missing.
+        if not candidate_path or not os.path.exists(candidate_path):
+            return
+
+        # //modify Store successful candidates under the current run's DONE/ folder.
+        done_dir = os.path.join(os.getcwd(), "DONE")
+        os.makedirs(done_dir, exist_ok=True)
+
+        archived_candidate_path = os.path.join(done_dir, os.path.basename(candidate_path))
+        # //modify Keep only the finalized successful candidate under DONE.
+        shutil.move(candidate_path, archived_candidate_path)
+        individual["candidate_path"] = archived_candidate_path
+
+        metrics_path = os.path.splitext(archived_candidate_path)[0] + ".txt"
+        # //modify Persist parsed summary metrics next to each successful candidate.
+        with open(metrics_path, "w", encoding="utf-8") as metrics_file:
+            metrics_file.write(f"Ast: {individual.get('ast')}\n")
+            metrics_file.write(f"Obj: {individual.get('obj')}\n")
+            metrics_file.write(f"Running time: {individual.get('avg_runtime')}\n")
 
 
     def evaluate_population(self, population: list[dict]) -> list[float]:
@@ -278,12 +310,22 @@ class ReEvo:
                 traceback_msg = filter_traceback(stdout_str)
 
                 individual = population[response_id]
-                ast_match = re.search(r"Anti-plagiarism similarity:\s*([0-9]+(?:\.[0-9]+)?)", stdout_str)
+                ast_match = re.search(
+                    r"Anti-plagiarism similarity:\s*([0-9]+(?:\.[0-9]+)?)",
+                    stdout_str,
+                )
+                if ast_match is None:
+                    # //modify Fall back to the rejection message so rejected candidates still expose similarity.
+                    ast_match = re.search(
+                        r"similarity=([0-9]+(?:\.[0-9]+)?)",
+                        stdout_str,
+                    )
                 individual["ast"] = float(ast_match.group(1)) if ast_match else None
                 avg_runtime_match = re.search(
                     r"Average runtime seconds:\s*([0-9]+(?:\.[0-9]+)?)",
                     stdout_str,
                 )
+                # //modify Parse average runtime from the evaluator's summary output.
                 individual["avg_runtime"] = (
                     float(avg_runtime_match.group(1)) if avg_runtime_match else None
                 )
@@ -292,6 +334,8 @@ class ReEvo:
                     try:
                         individual["obj"] = float(stdout_str.split('\n')[-2]) if self.obj_type == "min" else -float(stdout_str.split('\n')[-2])
                         individual["exec_success"] = True
+                        # //modify Move successful CVRP HGS candidates into DONE/ with sidecar metrics.
+                        self._archive_successful_candidate(individual)
                     except:
                         population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid std out / objective value!")
                 else: # Otherwise, also provide execution traceback error feedback
@@ -308,6 +352,14 @@ class ReEvo:
                     f"Ast: {ast_str}, Avg.running time: {avg_runtime_str}, "
                     f"Objective value: {individual['obj']}"
                 )
+                if not individual.get("exec_success", False):
+                    # //modify Surface the first line of the failure reason in the main run log for quick triage.
+                    failure_reason = individual.get("traceback_msg", "").strip()
+                    if failure_reason:
+                        logging.info(
+                            f"Iteration {self.iteration}, response_id {response_id}: "
+                            f"Failure reason: {failure_reason.splitlines()[0]}"
+                        )
         return population
 
 

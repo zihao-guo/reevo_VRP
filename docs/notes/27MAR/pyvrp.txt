@@ -1,0 +1,14 @@
+1. 检查仓库内 `pyvrp` 相关目录与引用，确认当前使用的新版本仍在 `utils/pyvrp_rep`，但已经取消 `selective_route_exchange_candidate.cpp` / `_srex_plugin` 这一套旧候选插件结构。
+2. 检查 `problems/cvrp_hgs/eval.py` 与 `cfg/problem/cvrp_hgs.yaml`，确认旧适配仍依赖单独的 candidate 文件路径，以及旧的 `build-reevo-cvrp-hgs-py311` 构建目录。
+3. 修改 `cfg/problem/cvrp_hgs.yaml`：
+   - 将 `candidate_cpp` 改为新版 PyVRP 实际参与编译的 `utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`。
+   - 将 `pyvrp_build_dir` 改为当前仓库已有的 `build-py312`。
+4. 修改 `problems/cvrp_hgs/eval.py`：
+   - 保留“每个候选复制一份独立 sandbox 再单独编译”的逻辑，不影响多个候选之间并行。
+   - 保留 Meson/Ninja 的正常编译调用，不影响单个候选 build 内部并行。
+   - 去掉旧版 `_srex_plugin` 相关假设，改为直接覆盖 sandbox 中的正式 `selective_route_exchange.cpp` 并编译。
+5. 复查改动范围，确保只做新 PyVRP 适配和新增这份中文记录，没有扩散到其他无关内容。
+6. 按要求最小修改 `reevo.py`：
+   - 新增 `max_parallel_candidates = max(1, (os.cpu_count() or 1) // 4)`。
+   - 将 `evaluate_population()` 改为按该上限分批启动候选，限制候选级并发。
+   - 不修改 `eval.py` 内部实例并行，也不修改单候选 build 内部由 Meson/Ninja 负责的并行编译。
