@@ -21,8 +21,8 @@ algorithm: reevo # other options are "eoh", "ael"; some problems may not support
 
 # Main GA loop parameters
 max_fe: 200 # maximum number of function evaluations
-pop_size: 10 # population size for GA
-init_pop_size: 30 # initial population size for GA
+pop_size: 5 #10 # population size for GA
+init_pop_size: 10 # 30 # initial population size for GA
 mutation_rate: 0.5 # mutation rate for GA
 timeout: 600 # timeout for evaluation of a single heuristic
 diversify_init_pop: True # whether to diversify the initial population
