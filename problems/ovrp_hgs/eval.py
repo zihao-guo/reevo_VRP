@@ -30,7 +30,7 @@ VRP_FILE_SCALE = 1000
 
 
 def load_problem_cfg(root_dir: Path) -> dict:
-    cfg_path = root_dir / "cfg" / "problem" / "cvrp_hgs.yaml"
+    cfg_path = root_dir / "cfg" / "problem" / "ovrp_hgs.yaml"
     with open(cfg_path, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
 
@@ -47,7 +47,7 @@ def problem_paths(root_dir: Path, cfg: dict) -> dict[str, Path]:
 
 
 def load_candidate_code(root_dir: Path, candidate_path: str | None) -> str:
-    source_path = Path(candidate_path) if candidate_path else root_dir / "problems" / "cvrp_hgs" / "gpt.py"
+    source_path = Path(candidate_path) if candidate_path else root_dir / "problems" / "ovrp_hgs" / "gpt.py"
     content = source_path.read_text(encoding="utf-8")
     code = extract_cpp_code(content)
     if code is None:
@@ -135,7 +135,7 @@ def load_reference_solution(
     return {"cost": cost, "runtime_seconds": runtime_seconds}
 
 
-def calculate_exact_cvrp_cost(instance_path: Path, routes) -> float:
+def calculate_exact_ovrp_cost(instance_path: Path, routes) -> float:
     coords: dict[int, tuple[float, float]] = {}
     in_coord_section = False
 
@@ -255,7 +255,10 @@ def build_dir_source_mismatch(build_dir: Path, pyvrp_root: Path) -> bool:
 def build_env() -> dict[str, str]:
     # //modify Force Meson/CMake/pkg-config to resolve pybind11 from the active .venv.
     env = os.environ.copy()
-    venv_bin = str(Path(sys.executable).resolve().parent)
+    # //modify Keep the .venv shim path itself at the front of PATH so Meson
+    # //modify picks the active virtualenv's python instead of the resolved
+    # //modify underlying interpreter or a system python.
+    venv_bin = str(Path(sys.executable).parent)
     pybind_root = Path(pybind11.__file__).resolve().parent
     pkgconfig_dir = pybind_root / "share" / "pkgconfig"
     cmake_dir = pybind_root / "share" / "cmake"
@@ -355,7 +358,7 @@ def solve_instance(
         params=SolveParams(),
     )
 
-    obj = calculate_exact_cvrp_cost(dataset_dir / instance_name, result.best.routes())
+    obj = calculate_exact_ovrp_cost(dataset_dir / instance_name, result.best.routes())
     feasible = result.is_feasible() and math.isfinite(obj)
     if not feasible:
         obj = float(baseline["obj"]) + max(100000.0, float(baseline["obj"]) * 10.0)
@@ -364,7 +367,7 @@ def solve_instance(
     baseline_runtime = float(baseline["solver_runtime_seconds"])
     ortools_obj = float(baseline["ortools_obj"])
     ortools_runtime = float(baseline["ortools_runtime_seconds"])
-    # //modify Optimise against the original HGS baseline stored under data/opt/CVRP/101/pyvrp.
+    # //modify Optimise against the original HGS baseline stored under data/opt/OVRP/101/pyvrp.
     delta_gap_percent_vs_baseline = ((obj / baseline_obj) - 1.0) * 100.0
 
     return {
@@ -509,7 +512,7 @@ def main() -> None:
     if candidate_path is None:
         if generated_output_path is None:
             raise RuntimeError(
-                "REEVO_GENERATED_OUTPUT must be set when exporting the final CVRP HGS candidate."
+                "REEVO_GENERATED_OUTPUT must be set when exporting the final OVRP HGS candidate."
             )
         generated_output_path.parent.mkdir(parents=True, exist_ok=True)
         generated_output_path.write_text(candidate_code + "\n", encoding="utf-8")
@@ -520,7 +523,7 @@ def main() -> None:
     smoke_timeout = int(cfg.get("smoke_test_timeout", 120))
     max_iterations = int(cfg.get("max_iterations", 1000))
 
-    with tempfile.TemporaryDirectory(prefix="cvrp-hgs-pyvrp-") as sandbox_dir:
+    with tempfile.TemporaryDirectory(prefix="ovrp-hgs-pyvrp-") as sandbox_dir:
         sandbox_root = Path(sandbox_dir)
         sandbox_pyvrp_root = clone_pyvrp_sandbox(paths["pyvrp_root"], sandbox_root)
         sandbox_paths = sandbox_problem_paths(paths, sandbox_pyvrp_root)

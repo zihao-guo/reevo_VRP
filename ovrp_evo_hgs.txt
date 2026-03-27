@@ -1,0 +1,92 @@
+1. 检查仓库实际目录结构，确认当前项目根目录为 `/home/zguo/Coding/reevo`，用户描述中的 `reevo/` 前缀对应仓库根。
+2. 检查 `cfg/problem/cvrp_hgs.yaml`、`problems/cvrp_hgs/*`、`prompts/cvrp_hgs/*`、`utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`，确认 `cvrp_hgs` 的接入方式是：
+   - 通过 `problems/<problem>/code_extraction.py` 提取完整 C++ 文件；
+   - 通过 `problems/<problem>/anti_plagiarism.py` 做相似度阈值校验；
+   - 通过 `problems/<problem>/eval.py` 将候选 C++ 覆盖到 `utils/pyvrp_rep` 的真实源码，再在沙箱中增量编译并并行评测。
+3. 检查 `data/generated/OVRP/101` 与 `data/opt/OVRP/101`，确认 OVRP 数据集与 baseline 已经存在，可直接复用 `cvrp_hgs` 的整体流程。
+4. **！！！**复制 `prompts/cvrp_hgs` 到 `prompts/ovrp_hgs`。
+5. **！！！**复制 `problems/cvrp_hgs` 到 `problems/ovrp_hgs`。
+6. **！！！**复制 `cfg/problem/cvrp_hgs.yaml` 到 `cfg/problem/ovrp_hgs.yaml`。
+7. 按“`problems/ovrp_hgs` 只需要把里面的 cvrp 改为 ovrp，不要进行任何修改直接使用”的要求，对新复制出的 `ovrp_hgs` 目录与 `prompts/ovrp_hgs`、`cfg/problem/ovrp_hgs.yaml` 做最小文本替换：
+   - `cvrp_hgs -> ovrp_hgs`
+   - `CVRP -> OVRP`
+   - `cvrp -> ovrp`
+   - `dataset_dir: data/generated/CVRP/101 -> data/generated/OVRP/101`
+   - `baseline_dir: data/opt/CVRP/101 -> data/opt/OVRP/101`
+8. **！！！**把 `cfg/problem/ovrp_hgs.yaml` 的 `plagiarism_threshold` 显式设为 `0.95`，确保新问题严格按 `problems/ovrp_hgs/anti_plagiarism.py` 执行阈值检查。
+9. 检查主流程后发现 `reevo.py` 之前只把 `cvrp_hgs` 识别为“C++ 专用问题”，如果不做最小入口适配，`ovrp_hgs` 无法调用 `problems/ovrp_hgs/code_extraction.py`，也无法走同一套候选 `.cpp` 编译流程。
+10. **！！！**修改 `reevo.py`，且只在必要位置加 `# //modify`：
+   - 改为按 `problems.{self.problem}.code_extraction` 动态加载对应问题的 `extract_cpp_code`；
+   - 将 `_uses_specialized_cpp_pipeline()` 从只支持 `cvrp_hgs` 扩展为同时支持 `cvrp_hgs` 与 `ovrp_hgs`；
+   - 其余主流程保持不变，不修改 `main.py` 与 `reevo.py` 的非必要逻辑。
+11. 从已有成功演化结果中选择一个相似度明显低于 `0.95` 的候选 `selective_route_exchange.cpp` 作为本次 OVRP smoke 的初始正式候选。
+12. **！！！**新建仓库根目录 `selective_route_exchange.cpp`。
+13. **！！！**用该文件替换 `utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`。
+14. 使用 `.venv` 做静态与规则校验：
+   - `/home/zguo/Coding/reevo/.venv/bin/python -m py_compile reevo.py problems/ovrp_hgs/eval.py problems/ovrp_hgs/code_extraction.py problems/ovrp_hgs/anti_plagiarism.py`
+   - 调用 `problems.ovrp_hgs.code_extraction.extract_cpp_code()`，确认能提取完整 C++ 文件；
+   - 调用 `problems.ovrp_hgs.anti_plagiarism.assert_below_threshold(..., 0.95)`，确认相似度为 `0.729195 < 0.95`。
+15. 使用 `.venv` 重新生成 `utils/pyvrp_rep/build-py312`：
+    - 旧的 `build-py312` 内部 Meson 元数据与当前环境不兼容；
+    - 清理 `build-py312` 后，在 `.venv` 下用当前 `pybind11`、`meson`、`ninja` 重新配置并增量编译；
+    - 编译日志确认 `pyvrp_cpp_crossover_selective_route_exchange.cpp.o` 被重新编译，说明新的 `selective_route_exchange.cpp` 已进入构建链路。
+16. 检查本地 `llm_client=local` 所需的 `127.0.0.1:8000` 服务，确认本机已有可用监听端口，可直接进行 `ovrp_hgs` smoke run。
+17. **！！！**修改 `problems/ovrp_hgs/eval.py` 的 `build_env()`：
+   - 保留原有逻辑；
+   - 仅把 `Path(sys.executable).resolve().parent` 改成 `Path(sys.executable).parent`；
+   - 目的：确保沙箱内 Meson 优先看到 `.venv/bin/python3` 与 `.venv/bin/ninja`，严格满足“务必使用 `.venv` 环境”的要求。
+18. 使用 `.venv` 执行直接评估验证：
+   - `/home/zguo/Coding/reevo/.venv/bin/python problems/ovrp_hgs/eval.py 50 /home/zguo/Coding/reevo train /home/zguo/Coding/reevo/selective_route_exchange.cpp`
+   - 结果：
+     - Anti-plagiarism similarity = `0.729195`
+     - Smoke test feasible = `True`
+     - Feasible solutions = `50/50`
+     - 说明当前替换后的 `selective_route_exchange.cpp` 已能在 OVRP 上完成编译、smoke 与全量 50 实例评测。
+19. 使用 `.venv` 执行最小 `ReEvo` smoke：
+   - `export LOCAL_LLM_API_KEY=EMPTY`
+   - `python main.py problem=ovrp_hgs llm_client=local init_pop_size=2 pop_size=2 max_fe=2 timeout=1800`
+20. 实际 smoke 为了提高拿到至少两个可行候选的概率，改用：
+   - `export LOCAL_LLM_API_KEY=EMPTY`
+   - `/home/zguo/Coding/reevo/.venv/bin/python /home/zguo/Coding/reevo/main.py problem=ovrp_hgs llm_client=local init_pop_size=4 pop_size=2 max_fe=5 timeout=1800`
+   - 日志保存到 `/home/zguo/Coding/reevo/ovrp_smoke.log`
+21. smoke 过程中确认：
+   - seed 候选 `problem_iter0_candidate0` 成功进入 `outputs/ovrp_hgs-hgs/2026-03-27_16-21-48/DONE/`；
+   - 初始种群中的 `problem_iter1_candidate0` 也成功进入同一 `DONE/`；
+   - 另外部分 LLM 生成候选在 smoke 阶段失败，错误为 `Client <id> is visited more than once.`，说明 OVRP 上对结构正确性的要求更严格。
+22. smoke 最终满足目标：
+   - `DONE/` 中至少两个可行解已经存在：
+     - `problem_iter0_candidate0_selective_route_exchange.cpp`
+     - `problem_iter1_candidate0_selective_route_exchange.cpp`
+   - 对应 sidecar 指标：
+     - `problem_iter0_candidate0_selective_route_exchange.txt` -> `Ast: 0.926306`, `Obj: 61.513733`, `Running time: 19.718193`
+     - `problem_iter1_candidate0_selective_route_exchange.txt` -> `Ast: 0.926306`, `Obj: 61.513733`, `Running time: 27.543262`
+23. 在达到 smoke 目标后，结束后台 `main.py problem=ovrp_hgs` 进程，保留本次输出目录与 `DONE/` 结果，避免继续占用资源。
+24. smoke test 目标：
+   - 跑通 `ovrp_hgs` 的 prompt -> code_extraction -> anti_plagiarism -> sandbox build -> parallel evaluation 全链路；
+   - 确保本次输出目录下 `DONE/` 至少有两个可行候选。
+25. 用户要求继续编译，并再次强调“务必使用 `.venv` 环境”，因此重新检查：
+   - `/home/zguo/Coding/reevo/.venv/bin/python -V` -> `Python 3.12.13`
+   - 现有 `outputs/ovrp_hgs-hgs/2026-03-27_16-21-48/DONE/` 中仍然保留两个可行候选。
+26. 使用 `.venv` 再次执行显式编译：
+   - `PATH="/home/zguo/Coding/reevo/.venv/bin:$PATH" ... /home/zguo/Coding/reevo/.venv/bin/python buildtools/build_extensions.py --build_dir build-py312 --build_type release`
+   - 结果：
+     - `ninja: no work to do.`
+     - `_pyvrp`、`_crossover`、`_diversity`、`_repair`、`_search` 均重新安装到 `utils/pyvrp_rep/pyvrp/*`
+   - 说明当前工作树里的 `utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp` 已处于可重复编译状态。
+27. 使用 `.venv` 再次执行 OVRP 直接 smoke 与全量评测：
+   - `/home/zguo/Coding/reevo/.venv/bin/python /home/zguo/Coding/reevo/problems/ovrp_hgs/eval.py 50 /home/zguo/Coding/reevo train /home/zguo/Coding/reevo/selective_route_exchange.cpp`
+   - 结果：
+     - `Anti-plagiarism similarity: 0.729195`
+     - `Smoke test feasible: True`
+     - `Instances evaluated: 50`
+     - `Feasible solutions: 50/50`
+     - `Average delta gap vs baseline (%): 61.625934`
+   - 说明当前根目录 `selective_route_exchange.cpp` 继续满足：
+     - 可通过 `problems/ovrp_hgs/code_extraction.py` 抽取；
+     - 可通过 `problems/ovrp_hgs/anti_plagiarism.py` 的 `0.95` 阈值；
+     - 可在 `.venv` 环境下完成沙箱编译与 OVRP 评测。
+28. 再次确认 smoke 结果要求已经满足：
+   - `DONE/` 中至少两个可行解仍然存在；
+   - 当前可直接复用：
+     - `outputs/ovrp_hgs-hgs/2026-03-27_16-21-48/DONE/problem_iter0_candidate0_selective_route_exchange.cpp`
+     - `outputs/ovrp_hgs-hgs/2026-03-27_16-21-48/DONE/problem_iter1_candidate0_selective_route_exchange.cpp`

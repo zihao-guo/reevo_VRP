@@ -1,4 +1,5 @@
 from typing import Optional
+import importlib
 import logging
 import re
 # //modify Archive successful CVRP HGS candidates into DONE/.
@@ -11,13 +12,6 @@ from omegaconf import DictConfig
 
 from utils.utils import *
 from utils.llm_client.base import BaseClient
-
-try:
-    # //modify Reuse the CVRP HGS C++ extractor from the main ReEvo pipeline.
-    from problems.cvrp_hgs.code_extraction import extract_cpp_code
-except ImportError:
-    extract_cpp_code = None
-
 
 class ReEvo:
     def __init__(
@@ -53,6 +47,7 @@ class ReEvo:
         self.best_obj_overall = None
         self.best_code_overall = None
         self.best_code_path_overall = None
+        self.cpp_code_extractor = None
         
         self.init_prompt()
         self.init_population()
@@ -86,6 +81,15 @@ class ReEvo:
             self.long_term_reflection_str = self.external_knowledge
         else:
             self.external_knowledge = ""
+
+        if self._uses_specialized_cpp_pipeline():
+            # //modify Load the per-problem C++ extractor so ovrp_hgs uses
+            # //modify problems/ovrp_hgs/code_extraction.py instead of the
+            # //modify previously hard-coded CVRP helper.
+            extractor_module = importlib.import_module(
+                f"problems.{self.problem}.code_extraction"
+            )
+            self.cpp_code_extractor = extractor_module.extract_cpp_code
 
         if self._uses_specialized_cpp_pipeline() and os.path.isdir(problem_utils_path):
             # //modify Route CVRP HGS through its specialised C++ prompt stack without a subclass.
@@ -130,14 +134,14 @@ class ReEvo:
 
     def _uses_specialized_cpp_pipeline(self) -> bool:
         # //modify Detect problems that evolve standalone C++ source files instead of Python functions.
-        return self.problem == "cvrp_hgs"
+        return self.problem in {"cvrp_hgs", "ovrp_hgs"}
 
     def _extract_individual_code(self, content: str) -> Optional[str]:
         # //modify Switch code extraction based on the problem's code carrier.
         if self._uses_specialized_cpp_pipeline():
-            if extract_cpp_code is None:
-                raise ImportError("CVRP HGS code extraction helper is unavailable.")
-            return extract_cpp_code(content)
+            if self.cpp_code_extractor is None:
+                raise ImportError(f"{self.problem} code extraction helper is unavailable.")
+            return self.cpp_code_extractor(content)
         return extract_code_from_generator(content)
 
     def _format_code_for_prompt(self, code: str) -> str:

@@ -90,89 +90,68 @@ pyvrp::Solution pyvrp::crossover::selectiveRouteExchange(
             selectedB[c] = true;
     }
 
-    // For the selection, we want to minimize |A\B| as these need replanning
-    while (true)
+    // Optimize route selection by aligning routes with similar angular orientation
+    // This ensures better spatial coherence, leading to a better structural
+    // integrity and potentially lower penalized cost.
+    auto routeAnglesA = std::vector<double>(nRoutesA);
+    auto routeAnglesB = std::vector<double>(nRoutesB);
+
+    for (size_t i = 0; i < nRoutesA; ++i)
     {
-        // Difference for moving 'left' in parent A
-        int differenceALeft = 0;
+        routeAnglesA[i] = routeAngle(data, routesA[i]);
+    }
 
-        for (Client c : routesA[(startA - 1 + nRoutesA) % nRoutesA])
-            differenceALeft += !selectedB[c];
+    for (size_t i = 0; i < nRoutesB; ++i)
+    {
+        routeAnglesB[i] = routeAngle(data, routesB[i]);
+    }
 
-        for (Client c : routesA[(startA + numMovedRoutes - 1) % nRoutesA])
-            differenceALeft -= !selectedB[c];
+    // Compute initial angular deviation
+    double currentAngularDeviation = 0.0;
+    for (size_t i = 0; i < numMovedRoutes; ++i)
+    {
+        size_t idxA = (startA + i) % nRoutesA;
+        size_t idxB = (startB + i) % nRoutesB;
+        currentAngularDeviation += std::abs(routeAnglesA[idxA] - routeAnglesB[idxB]);
+    }
 
-        // Difference for moving 'right' in parent A
-        int differenceARight = 0;
-
-        for (Client c : routesA[(startA + numMovedRoutes) % nRoutesA])
-            differenceARight += !selectedB[c];
-
-        for (Client c : routesA[startA])
-            differenceARight -= !selectedB[c];
-
-        // Difference for moving 'left' in parent B
-        int differenceBLeft = 0;
-
-        for (Client c : routesB[(startB - 1 + numMovedRoutes) % nRoutesB])
-            differenceBLeft += selectedA[c];
-
-        for (Client c : routesB[(startB - 1 + nRoutesB) % nRoutesB])
-            differenceBLeft -= selectedA[c];
-
-        // Difference for moving 'right' in parent B
-        int differenceBRight = 0;
-
-        for (Client c : routesB[startB])
-            differenceBRight += selectedA[c];
-
-        for (Client c : routesB[(startB + numMovedRoutes) % nRoutesB])
-            differenceBRight -= selectedA[c];
-
-        int const bestDifference = std::min({differenceALeft,
-                                             differenceARight,
-                                             differenceBLeft,
-                                             differenceBRight});
-
-        if (bestDifference >= 0)  // there are no further improving moves
-            break;
-
-        if (bestDifference == differenceALeft)
+    // MODIFY: Expand the search space for minimal angular deviation to improve
+    // spatial coherence and reduce penalized cost
+    for (int shiftA = -3; shiftA <= 3; ++shiftA)
+    {
+        for (int shiftB = -3; shiftB <= 3; ++shiftB)
         {
-            for (Client c : routesA[(startA + numMovedRoutes - 1) % nRoutesA])
-                selectedA[c] = false;
+            size_t newStartA = (startA + shiftA + nRoutesA) % nRoutesA;
+            size_t newStartB = (startB + shiftB + nRoutesB) % nRoutesB;
+            double newAngularDeviation = 0.0;
 
-            startA = (startA - 1 + nRoutesA) % nRoutesA;
-            for (Client c : routesA[startA])
-                selectedA[c] = true;
-        }
-        else if (bestDifference == differenceARight)
-        {
-            for (Client c : routesA[startA])
-                selectedA[c] = false;
+            for (size_t i = 0; i < numMovedRoutes; ++i)
+            {
+                size_t idxA = (newStartA + i) % nRoutesA;
+                size_t idxB = (newStartB + i) % nRoutesB;
+                newAngularDeviation += std::abs(routeAnglesA[idxA] - routeAnglesB[idxB]);
+            }
 
-            startA = (startA + 1) % nRoutesA;
-            for (Client c : routesA[(startA + numMovedRoutes - 1) % nRoutesA])
-                selectedA[c] = true;
+            if (newAngularDeviation < currentAngularDeviation)
+            {
+                startA = newStartA;
+                startB = newStartB;
+                currentAngularDeviation = newAngularDeviation;
+            }
         }
-        else if (bestDifference == differenceBLeft)
-        {
-            for (Client c : routesB[(startB + numMovedRoutes - 1) % nRoutesB])
-                selectedB[c] = false;
+    }
 
-            startB = (startB - 1 + nRoutesB) % nRoutesB;
-            for (Client c : routesB[startB])
-                selectedB[c] = true;
-        }
-        else if (bestDifference == differenceBRight)
-        {
-            for (Client c : routesB[startB])
-                selectedB[c] = false;
+    // Re-initialize the bitsets after shifting
+    selectedA.reset();
+    selectedB.reset();
 
-            startB = (startB + 1) % nRoutesB;
-            for (Client c : routesB[(startB + numMovedRoutes - 1) % nRoutesB])
-                selectedB[c] = true;
-        }
+    for (size_t r = 0; r < numMovedRoutes; r++)
+    {
+        for (Client c : routesA[(startA + r) % nRoutesA])
+            selectedA[c] = true;
+
+        for (Client c : routesB[(startB + r) % nRoutesB])
+            selectedB[c] = true;
     }
 
     // Identify differences between route sets
