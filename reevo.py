@@ -258,6 +258,27 @@ class ReEvo:
             metrics_file.write(f"Obj: {individual.get('obj')}\n")
             metrics_file.write(f"Running time: {individual.get('avg_runtime')}\n")
 
+    def _extract_failure_reason(self, stdout_str: str, traceback_msg: str) -> str:
+        """
+        Build a concise failure summary from evaluator stdout.
+        """
+        # //modify Surface smoke-test failures explicitly in the main run log.
+        for line in stdout_str.splitlines():
+            if "Smoke test failed:" in line:
+                return line.strip()
+            if "Candidate rejected by anti-plagiarism check:" in line:
+                return line.strip()
+            if "error:" in line:
+                return line.strip()
+
+        # //modify Prefer the final exception line over the generic traceback header.
+        traceback_lines = [line.strip() for line in traceback_msg.splitlines() if line.strip()]
+        for line in reversed(traceback_lines):
+            if line != "Traceback (most recent call last):":
+                return line
+
+        return traceback_lines[0] if traceback_lines else ""
+
 
     def evaluate_population(self, population: list[dict]) -> list[float]:
         """
@@ -329,17 +350,28 @@ class ReEvo:
                 individual["avg_runtime"] = (
                     float(avg_runtime_match.group(1)) if avg_runtime_match else None
                 )
+                failure_reason = self._extract_failure_reason(stdout_str, traceback_msg)
                 # Store objective value for each individual
-                if traceback_msg == '': # If execution has no error
+                # //modify Treat smoke-test failures and non-finite objectives as invalid even without a traceback.
+                if traceback_msg == '' and "Smoke test failed:" not in stdout_str: # If execution has no error
                     try:
                         individual["obj"] = float(stdout_str.split('\n')[-2]) if self.obj_type == "min" else -float(stdout_str.split('\n')[-2])
-                        individual["exec_success"] = True
-                        # //modify Move successful CVRP HGS candidates into DONE/ with sidecar metrics.
-                        self._archive_successful_candidate(individual)
+                        if np.isfinite(individual["obj"]):
+                            individual["exec_success"] = True
+                            # //modify Move successful CVRP HGS candidates into DONE/ with sidecar metrics.
+                            self._archive_successful_candidate(individual)
+                        else:
+                            population[response_id] = self.mark_invalid_individual(
+                                population[response_id],
+                                failure_reason or "Objective is not finite.",
+                            )
                     except:
                         population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid std out / objective value!")
                 else: # Otherwise, also provide execution traceback error feedback
-                    population[response_id] = self.mark_invalid_individual(population[response_id], traceback_msg)
+                    population[response_id] = self.mark_invalid_individual(
+                        population[response_id],
+                        failure_reason or traceback_msg,
+                    )
 
                 ast_str = f"{individual['ast']:.6f}" if individual.get('ast') is not None else "None"
                 avg_runtime_str = (
@@ -347,19 +379,31 @@ class ReEvo:
                     if individual.get("avg_runtime") is not None
                     else "None"
                 )
-                logging.info(
-                    f"Iteration {self.iteration}, response_id {response_id}: "
-                    f"Ast: {ast_str}, Avg.running time: {avg_runtime_str}, "
-                    f"Objective value: {individual['obj']}"
-                )
-                if not individual.get("exec_success", False):
-                    # //modify Surface the first line of the failure reason in the main run log for quick triage.
-                    failure_reason = individual.get("traceback_msg", "").strip()
-                    if failure_reason:
-                        logging.info(
-                            f"Iteration {self.iteration}, response_id {response_id}: "
-                            f"Failure reason: {failure_reason.splitlines()[0]}"
-                        )
+                # //modify Add a separator before each response summary to make logs easier to scan.
+                logging.info("# ****************")
+                if individual.get("exec_success", False):
+                    logging.info(
+                        f"Iteration {self.iteration}, response_id {response_id}: "
+                        f"Ast: {ast_str}, Avg.running time: {avg_runtime_str}, "
+                        f"Objective value: {individual['obj']}"
+                    )
+                else:
+                    # //modify Print failures as a dedicated block so they stand out in long logs.
+                    failure_reason = individual.get("traceback_msg", "").strip() or "Unknown failure"
+                    # //modify Add an explicit failure separator for faster visual scanning.
+                    logging.info("# !!!!! FAILED !!!!!")
+                    logging.info(
+                        f"Iteration {self.iteration}, response_id {response_id}: FAILED"
+                    )
+                    logging.info(
+                        f"Iteration {self.iteration}, response_id {response_id}: "
+                        f"Ast={ast_str} | Avg.running time={avg_runtime_str} | "
+                        f"Objective value={individual['obj']}"
+                    )
+                    logging.info(
+                        f"Iteration {self.iteration}, response_id {response_id}: "
+                        f"Reason: {failure_reason}"
+                    )
         return population
 
 
