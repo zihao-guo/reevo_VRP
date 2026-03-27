@@ -16,4 +16,4 @@ pyvrp:
   max_iterations: 1000  # PyVRP stopping criterion in iterations.
 
 ortools:
-  time_limit: 20  # Per-instance OR-Tools time limit in seconds.
+  time_limit: 300  # Per-instance OR-Tools time limit in seconds.

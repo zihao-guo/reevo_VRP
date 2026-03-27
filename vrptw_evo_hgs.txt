@@ -1,0 +1,48 @@
+1. 检查仓库结构，确认当前基线目录为 `problems/cvrp_hgs`、`prompts/cvrp_hgs`、`cfg/problem/cvrp_hgs.yaml`，并确认 VRPTW 数据实际存在于 `data/generated/VRPTW/101` 与 `data/opt/VRPTW/101`。
+2. **！！！** 新建 `problems/vrptw_hgs`，直接从 `problems/cvrp_hgs` 复制，只做 `cvrp -> vrptw`、`CVRP -> VRPTW` 的字面替换，不改评测逻辑。
+3. **！！！** 新建 `prompts/vrptw_hgs`，直接从 `prompts/cvrp_hgs` 复制，只做问题名与问题描述的字面替换。
+4. **！！！** 新建 `cfg/problem/vrptw_hgs.yaml`，核心配置为：
+   - `problem_name: vrptw_hgs`
+   - `dataset_dir: data/generated/vrptw/101`
+   - `baseline_dir: data/opt/vrptw/101`
+   - `build_lock: problems/vrptw_hgs/build.lock`
+   - `plagiarism_threshold: 0.95`
+5. **！！！** 为了让新问题复用现有独立 C++ 演化流水线，对 `reevo.py` 做最小适配，只在 `_uses_specialized_cpp_pipeline()` 白名单中补入 `vrptw_hgs`，其他 Python 演化逻辑不改。
+6. **！！！** 由于仓库现有数据目录是大写 `VRPTW`，为保持你要求的小写配置路径不改主逻辑，增加目录别名：
+   - `data/generated/vrptw -> VRPTW`
+   - `data/opt/vrptw -> VRPTW`
+7. 选取一个已验证可编译的完整 SREX 响应作为候选源，临时包装成 fenced C++ 响应文本，然后使用 `problems/vrptw_hgs/code_extraction.py` 提取代码，生成根目录 `selective_route_exchange.cpp`。
+8. 使用 `problems/vrptw_hgs/anti_plagiarism.py` 按阈值 `0.95` 对 `selective_route_exchange.cpp` 与 `data/selective_route_exchange.original.cpp` 做检查，归一化相似度为 `0.758522`，通过反抄袭校验。
+9. **！！！** 用生成出的 `selective_route_exchange.cpp` 替换 `utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`，并同步到 `problems/vrptw_hgs/gpt.py`，保证默认候选与当前正式源码一致。
+10. 在 `.venv` 下执行 `python problems/vrptw_hgs/eval.py -1 . train selective_route_exchange.cpp` 做增量编译与全量验证，结果为：
+   - `Anti-plagiarism similarity: 0.758522`
+   - `Smoke test feasible: True`
+   - `Instances evaluated: 50`
+   - `Feasible solutions: 50/50`
+   - `Improved over baseline: 15/50`
+   - `Average delta gap vs baseline (%): 0.261614`
+11. 在 `.venv` 下使用本地模型配置 `cfg/llm_client/local` 运行 smoke test：
+   - 命令：`python main.py problem=vrptw_hgs llm_client=local llm_client.temperature=0.2 init_pop_size=4 pop_size=4 max_fe=5 timeout=1800`
+   - 输出目录：`outputs/vrptw_hgs-hgs/2026-03-27_19-00-01`
+12. 本地模型 smoke test 结果：
+   - `DONE/` 中共有 4 个可行候选：
+     - `problem_iter0_candidate0_selective_route_exchange.cpp`
+     - `problem_iter1_candidate0_selective_route_exchange.cpp`
+     - `problem_iter1_candidate2_selective_route_exchange.cpp`
+     - `problem_iter1_candidate3_selective_route_exchange.cpp`
+   - 至少两个可行解的要求已满足。
+13. 本地模型 run 的最终 validation 摘要为：
+   - `Anti-plagiarism similarity: 0.926306`
+   - `Smoke test feasible: True`
+   - `Instances evaluated: 50`
+   - `Feasible solutions: 50/50`
+   - `Improved over baseline: 17/50`
+   - `Average delta gap vs baseline (%): 0.064177`
+   - `Average runtime seconds: 29.129764`
+14. 最终产物位置：
+   - 根目录生成文件：`selective_route_exchange.cpp`
+   - 正式替换文件：`utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`
+   - 新问题目录：`problems/vrptw_hgs`
+   - 新 prompt 目录：`prompts/vrptw_hgs`
+   - 新配置：`cfg/problem/vrptw_hgs.yaml`
+   - 本地模型 smoke test 输出：`outputs/vrptw_hgs-hgs/2026-03-27_19-00-01`

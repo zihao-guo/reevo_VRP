@@ -93,56 +93,76 @@ pyvrp::Solution pyvrp::crossover::selectiveRouteExchange(
     // MODIFY: Prioritize route selection based on minimal client count differences
     // This preserves stronger route structure, reduces reallocations, and
     // minimizes penalized cost changes.
-
-    // Instead of a while loop with greedy improvement checks, we apply a fixed
-    // heuristic: we look for the position to shift within a small window (say, 5
-    // positions) to maximize the route similarity and minimize the client count
-    // variance. This leads to better offspring with lower penalised costs while
-    // ensuring a quick decision and minimal overhead.
-    size_t bestStartA = startA;
-    size_t bestStartB = startB;
-    int bestDelta = std::numeric_limits<int>::max();
-
-    for (int i = -2; i <= 2; i++)
+    while (true)
     {
-        for (int j = -2; j <= 2; j++)
+        // Difference for moving 'left' in parent A
+        int differenceALeft = 0;
+        size_t currASize = routesA[(startA + numMovedRoutes - 1) % nRoutesA].size();
+        size_t nextASize = routesA[(startA - 1 + nRoutesA) % nRoutesA].size();
+        differenceALeft = std::abs(static_cast<int>(nextASize - currASize));
+
+        // Difference for moving 'right' in parent A
+        int differenceARight = 0;
+        currASize = routesA[startA].size();
+        nextASize = routesA[(startA + numMovedRoutes) % nRoutesA].size();
+        differenceARight = std::abs(static_cast<int>(nextASize - currASize));
+
+        // Difference for moving 'left' in parent B
+        int differenceBLeft = 0;
+        currASize = routesB[(startB + numMovedRoutes - 1) % nRoutesB].size();
+        nextASize = routesB[(startB - 1 + nRoutesB) % nRoutesB].size();
+        differenceBLeft = std::abs(static_cast<int>(nextASize - currASize));
+
+        // Difference for moving 'right' in parent B
+        int differenceBRight = 0;
+        currASize = routesB[startB].size();
+        nextASize = routesB[(startB + numMovedRoutes) % nRoutesB].size();
+        differenceBRight = std::abs(static_cast<int>(nextASize - currASize));
+
+        int const bestDifference = std::min({differenceALeft,
+                                             differenceARight,
+                                             differenceBLeft,
+                                             differenceBRight});
+
+        if (bestDifference >= 0)  // there are no further improving moves
+            break;
+
+        if (bestDifference == differenceALeft)
         {
-            size_t newStartA = (startA + i + nRoutesA) % nRoutesA;
-            size_t newStartB = (startB + j + nRoutesB) % nRoutesB;
+            for (Client c : routesA[(startA + numMovedRoutes - 1) % nRoutesA])
+                selectedA[c] = false;
 
-            size_t sizeA = 0;
-            size_t sizeB = 0;
-
-            for (size_t r = 0; r < numMovedRoutes; r++)
-            {
-                sizeA += routesA[(newStartA + r) % nRoutesA].size();
-                sizeB += routesB[(newStartB + r) % nRoutesB].size();
-            }
-
-            int delta = std::abs(static_cast<int>(sizeA - sizeB));
-            if (delta < bestDelta)
-            {
-                bestDelta = delta;
-                bestStartA = newStartA;
-                bestStartB = newStartB;
-            }
+            startA = (startA - 1 + nRoutesA) % nRoutesA;
+            for (Client c : routesA[startA])
+                selectedA[c] = true;
         }
-    }
+        else if (bestDifference == differenceARight)
+        {
+            for (Client c : routesA[startA])
+                selectedA[c] = false;
 
-    // Now update the selected routes using the best starting positions found
-    startA = bestStartA;
-    startB = bestStartB;
+            startA = (startA + 1) % nRoutesA;
+            for (Client c : routesA[(startA + numMovedRoutes - 1) % nRoutesA])
+                selectedA[c] = true;
+        }
+        else if (bestDifference == differenceBLeft)
+        {
+            for (Client c : routesB[(startB + numMovedRoutes - 1) % nRoutesB])
+                selectedB[c] = false;
 
-    selectedA = DynamicBitset(data.numLocations());
-    selectedB = DynamicBitset(data.numLocations());
+            startB = (startB - 1 + nRoutesB) % nRoutesB;
+            for (Client c : routesB[startB])
+                selectedB[c] = true;
+        }
+        else if (bestDifference == differenceBRight)
+        {
+            for (Client c : routesB[startB])
+                selectedB[c] = false;
 
-    for (size_t r = 0; r < numMovedRoutes; r++)
-    {
-        for (Client c : routesA[(startA + r) % nRoutesA])
-            selectedA[c] = true;
-
-        for (Client c : routesB[(startB + r) % nRoutesB])
-            selectedB[c] = true;
+            startB = (startB + 1) % nRoutesB;
+            for (Client c : routesB[(startB + numMovedRoutes - 1) % nRoutesB])
+                selectedB[c] = true;
+        }
     }
 
     // Identify differences between route sets
