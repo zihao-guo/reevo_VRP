@@ -1,0 +1,13 @@
+- The candidate must be a complete compilable C++17 `selective_route_exchange.cpp` file, not a fragment.
+- Evaluation compiles the candidate inside `utils/pyvrp_rep` and then runs PyVRP on the configured OVRPTW instance set.
+- Optimisation target is average delta gap versus the original HGS reference stored in `data/opt/OVRPTW/101/pyvrp` (`((candidate objective / baseline objective) - 1) * 100`); lower is better, and values below `0.00` beat the baseline.
+- Keep `pyvrp::crossover::selectiveRouteExchange(...)` unchanged and preserve required includes.
+- Use only existing PyVRP APIs that are already available in the baseline file and current repository.
+- Prefer localized, reliable edits over large rewrites, and avoid new dependencies.
+- Use only verified PyVRP APIs that are documented in the baseline or task description:
+  - `ProblemData::numLocations()`, `numClients()`, `centroid()`, `client(idx)`
+  - `Route::centroid()`, `vehicleType()`, `size()`, `visits()`, and route iteration via `for (Client c : route)`
+  - `Route(data, visits, vehicleType)`
+  - `CostEvaluator::penalisedCost(solution)`
+- Every actual code modification should be marked with a clear `// MODIFY: ...` comment.
+- Output exactly one fenced C++ block: ```cpp ... ```.

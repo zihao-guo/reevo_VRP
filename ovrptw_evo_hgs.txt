@@ -1,0 +1,26 @@
+1. 检查仓库结构，确认现有基线目录为 `problems/cvrp_hgs`、`prompts/cvrp_hgs`、`cfg/problem/cvrp_hgs.yaml`，并确认 OVRPTW 数据实际存在于 `data/generated/OVRPTW/101`、`data/opt/OVRPTW/101`。
+2. **！！！** 新建 `problems/ovrptw_hgs`，按要求从 `problems/cvrp_hgs` 直接复制，仅做 `cvrp -> ovrptw` 的字面替换，不额外改逻辑。
+3. **！！！** 新建 `prompts/ovrptw_hgs`，模仿 `prompts/cvrp_hgs` 复制并把问题描述从 CVRP 改为 OVRPTW。
+4. **！！！** 新建 `cfg/problem/ovrptw_hgs.yaml`，配置为：
+   - `problem_name: ovrptw_hgs`
+   - `dataset_dir: data/generated/OVRPTW/101`
+   - `baseline_dir: data/opt/OVRPTW/101`
+   - `build_lock: problems/ovrptw_hgs/build.lock`
+   - `plagiarism_threshold: 0.95`
+5. **！！！** 最小修改 `reevo.py`，仅把 `_uses_specialized_cpp_pipeline()` 的白名单扩展为支持 `ovrptw_hgs`，未修改其他演化逻辑。
+6. 生成新的 SREX 响应文件 `ovrptw_srex_response.txt`，内容为完整 fenced C++17 实现。
+7. 使用 `problems/ovrptw_hgs/code_extraction.py` 从 `ovrptw_srex_response.txt` 提取代码，生成：
+   - `selective_route_exchange.cpp`
+   - `problems/ovrptw_hgs/gpt.py`
+   - `utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`
+8. 使用 `problems/ovrptw_hgs/anti_plagiarism.py` 按 `0.95` 阈值检查新代码，与 `data/selective_route_exchange.original.cpp` 的归一化相似度为 `0.315215`，通过反抄袭校验。
+9. 在 `.venv` 下对 `utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp` 做增量编译验证。
+10. 首次增量编译失败，原因是 helper 放在匿名命名空间后无法直接解析 `DynamicBitset`；补充 `using DynamicBitset = pyvrp::DynamicBitset;` 后重新抽取并替换源码。
+11. 再次增量编译成功，命令为：
+    `PATH=/home/zguo/Coding/reevo/.venv/bin:$PATH /home/zguo/Coding/reevo/.venv/bin/python buildtools/build_extensions.py --build_dir build-py312 --build_type release`
+12. 在 `.venv` 下对 OVRPTW 的 `n101-0001.vrp` 做 smoke test：
+    - `DONE/problem_iter0_candidate0_selective_route_exchange.cpp` 可行，`obj=20.263336`，`runtime=7.103596`
+    - `DONE/problem_iter1_candidate0_selective_route_exchange.cpp` 可行，`obj=20.263336`，`runtime=4.300926`
+13. 最终 `DONE/` 中至少有两份可行解，并生成对应侧写文件：
+    - `DONE/problem_iter0_candidate0_selective_route_exchange.txt`
+    - `DONE/problem_iter1_candidate0_selective_route_exchange.txt`
