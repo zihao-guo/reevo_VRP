@@ -9,7 +9,7 @@ description = "ReEvo: Large Language Models as Hyper-Heuristics with Reflective 
 authors = [
     { name = "Haoran Ye", email = "hrye@stu.pku.edu.cn"},
 ]
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.12,<3.13"
 readme = "README.md"
 license = "MIT"
 dependencies = [
@@ -174,7 +174,7 @@ dependencies = [
     "sentencepiece==0.2.1",
     "sentry-sdk==2.56.0",
     "setproctitle==1.3.7",
-    "setuptools==82.0.1",
+    "setuptools==80.9.0",
     "shellingham==1.5.4",
     "six==1.17.0",
     "sniffio==1.3.1",
@@ -211,7 +211,7 @@ dependencies = [
 select = ["F", "E", "W", "I001"]
 line-length = 90
 show-fixes = false
-target-version = "py311"
+target-version = "py312"
 task-tags = ["TODO", "FIXME"]
 ignore = ["E501"] # never enforce `E501` (line length violations), done in Black
 
@@ -234,7 +234,7 @@ lines-between-types = 1
 
 [tool.black]
 line-length = 90
-target-version = ["py311"]
+target-version = ["py312"]
 include = '\.pyi?$'
 exclude = '''
 (

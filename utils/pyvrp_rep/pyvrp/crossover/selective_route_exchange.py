@@ -1,6 +1,3 @@
-import importlib
-import os
-from functools import lru_cache
 from warnings import warn
 
 from pyvrp._pyvrp import (
@@ -11,40 +8,6 @@ from pyvrp._pyvrp import (
 )
 from pyvrp.crossover._crossover import selective_route_exchange as _srex
 from pyvrp.exceptions import TspWarning
-
-
-@lru_cache(maxsize=1)
-def _resolve_srex_impl():
-    if os.environ.get("PYVRP_SREX_USE_PLUGIN", "").lower() not in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }:
-        return _srex
-
-    module_name = os.environ.get(
-        "PYVRP_SREX_PLUGIN_MODULE",
-        "pyvrp.crossover._srex_plugin",
-    )
-    func_name = os.environ.get(
-        "PYVRP_SREX_PLUGIN_FUNC",
-        "selective_route_exchange_candidate",
-    )
-
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as exc:
-        raise RuntimeError(
-            f"Failed to import SREX plugin module `{module_name}`."
-        ) from exc
-
-    try:
-        return getattr(module, func_name)
-    except AttributeError as exc:
-        raise RuntimeError(
-            f"SREX plugin module `{module_name}` does not export `{func_name}`."
-        ) from exc
 
 
 def selective_route_exchange(
@@ -111,8 +74,6 @@ def selective_route_exchange(
     max_routes_to_move = min(first.num_routes(), second.num_routes())
     num_routes_to_move = rng.randint(max_routes_to_move) + 1
 
-    srex_impl = _resolve_srex_impl()
-
-    return srex_impl(
+    return _srex(
         parents, data, cost_evaluator, (idx1, idx2), num_routes_to_move
     )

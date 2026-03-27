@@ -59,15 +59,6 @@ libcrossover = static_library(
     link_with: libpyvrp,
 )
 
-libsrexplugin = static_library(
-    'srex_plugin',
-    [
-        SRC_DIR / 'crossover' / 'selective_route_exchange_candidate.cpp',
-    ],
-    include_directories: INCLUDES,
-    link_with: libpyvrp,
-)
-
 libdiversity = static_library(
     'diversity',
     [
@@ -103,18 +94,16 @@ librepair = static_library(
     link_with: [libpyvrp, libsearch],  # uses search to evaluate repair moves
 )
 
-# Extension as [extension name, subdirectory, core C++ library, bindings file].
-# The extension name names the eventual module name, subdirectory gives the
-# source and installation directories (relative to top-level directories), the
-# core C++ library is one of the static libraries we defined above, and the
-# bindings file selects the pybind entrypoint.
+# Extension as [extension name, subdirectory, core C++ library]. The extension
+# name names the eventual module name, subdirectory gives the source and
+# installation directories (relative to top-level directories), and the core 
+# C++ library is one of the static libraries we defined above.
 extensions = [
-    ['pyvrp', '', libpyvrp, 'bindings.cpp'],
-    ['crossover', 'crossover', libcrossover, 'bindings.cpp'],
-    ['srex_plugin', 'crossover', libsrexplugin, 'srex_plugin_bindings.cpp'],
-    ['diversity', 'diversity', libdiversity, 'bindings.cpp'],
-    ['repair', 'repair', librepair, 'bindings.cpp'],
-    ['search', 'search', libsearch, 'bindings.cpp'],
+    ['pyvrp', '', libpyvrp],
+    ['crossover', 'crossover', libcrossover],
+    ['diversity', 'diversity', libdiversity],
+    ['repair', 'repair', librepair],
+    ['search', 'search', libsearch],
 ]
 
 # Extension dependencies: Python itself, and pybind11.
@@ -125,7 +114,6 @@ foreach extension : extensions
     rawname = extension[0]
     name = '_' + rawname
     subdir = extension[1]
-    bindings = extension[3]
 
     message('Going to build extension module ' + subdir / name + '.')
 
@@ -140,13 +128,13 @@ foreach extension : extensions
         output: rawname + '_docs.h',
         input: ['buildtools/extract_docstrings.py'] + doc_input_headers,
         command: ['python', '@INPUT@', '@OUTPUT@'],
-        depend_files: [SRC_DIR / subdir / bindings],
+        depend_files: [SRC_DIR / subdir / 'bindings.cpp'],
     )
 
     # Register extension module to build.
     py.extension_module(
         name,
-        [SRC_DIR / subdir / bindings, doc_output_header],
+        [SRC_DIR / subdir / 'bindings.cpp', doc_output_header],
         dependencies: dependencies,
         link_with: extension[2],
         install: true,

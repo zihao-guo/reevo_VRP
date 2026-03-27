@@ -206,8 +206,9 @@ def incremental_build_candidate(
     candidate_cpp: Path,
     candidate_code: str,
 ) -> None:
-    # //modify Candidate builds now happen inside per-candidate sandboxes, so we
-    # //modify only need to update the candidate plugin source file there.
+    # //modify Candidate builds happen inside per-candidate sandboxes. New
+    # //modify PyVRP no longer uses a separate candidate plugin file, so we
+    # //modify overwrite the real crossover source in that sandbox and rebuild.
     candidate_cpp.write_text(candidate_code + "\n", encoding="utf-8")
 
     cmd = [
@@ -312,7 +313,8 @@ def sandbox_problem_paths(paths: dict[str, Path], sandbox_pyvrp_root: Path) -> d
 
 def clone_pyvrp_sandbox(shared_pyvrp_root: Path, sandbox_parent: Path) -> Path:
     # //modify Copy a source-only PyVRP tree into an isolated sandbox so each
-    # //modify candidate gets its own build directory and plugin installation.
+    # //modify candidate gets its own build directory and can compile in
+    # //modify parallel without interfering with other candidates.
     sandbox_root = sandbox_parent / shared_pyvrp_root.name
     shutil.copytree(
         shared_pyvrp_root,
@@ -341,8 +343,6 @@ def solve_instance(
     max_iterations: int,
 ) -> dict:
     ensure_local_pyvrp_import(pyvrp_root)
-
-    os.environ["PYVRP_SREX_USE_PLUGIN"] = "1"
 
     from pyvrp.read import read
     from pyvrp.solve import SolveParams, solve

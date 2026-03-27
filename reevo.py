@@ -231,75 +231,83 @@ class ReEvo:
         """
         Evaluate population by running code in parallel and computing objective values.
         """
-        inner_runs = []
-        # Run code to evaluate
-        for response_id in range(len(population)):
-            self.function_evals += 1
-            # Skip if response is invalid
-            if population[response_id]["code"] is None:
-                population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid response!")
-                inner_runs.append(None)
-                continue
-            
-            logging.info(f"Iteration {self.iteration}: Running Code {response_id}")
-            
-            try:
-                process = self._run_code(population[response_id], response_id)
-                inner_runs.append(process)
-            except Exception as e: # If code execution fails
-                logging.info(f"Error for response_id {response_id}: {e}")
-                population[response_id] = self.mark_invalid_individual(population[response_id], str(e))
-                inner_runs.append(None)
-        
-        # Update population with objective values
-        for response_id, inner_run in enumerate(inner_runs):
-            if inner_run is None: # If code execution fails, skip
-                continue
-            try:
-                inner_run.communicate(timeout=self.cfg.timeout) # Wait for code execution to finish
-            except subprocess.TimeoutExpired as e:
-                logging.info(f"Error for response_id {response_id}: {e}")
-                population[response_id] = self.mark_invalid_individual(population[response_id], str(e))
-                inner_run.kill()
-                continue
+        max_parallel_candidates = max(1, (os.cpu_count() or 1) // 4)
+        logging.info("# -----------------------")
+        logging.info(f"max_parallel_candidates: {max_parallel_candidates}")
+        logging.info("# -----------------------")
 
-            individual = population[response_id]
-            stdout_filepath = individual["stdout_filepath"]
-            with open(stdout_filepath, 'r',encoding="utf-8") as f:  # read the stdout file
-                stdout_str = f.read() 
-            traceback_msg = filter_traceback(stdout_str)
-            
-            individual = population[response_id]
-            ast_match = re.search(r"Anti-plagiarism similarity:\s*([0-9]+(?:\.[0-9]+)?)", stdout_str)
-            individual["ast"] = float(ast_match.group(1)) if ast_match else None
-            avg_runtime_match = re.search(
-                r"Average runtime seconds:\s*([0-9]+(?:\.[0-9]+)?)",
-                stdout_str,
-            )
-            individual["avg_runtime"] = (
-                float(avg_runtime_match.group(1)) if avg_runtime_match else None
-            )
-            # Store objective value for each individual
-            if traceback_msg == '': # If execution has no error
+        for batch_start in range(0, len(population), max_parallel_candidates):
+            batch_end = min(len(population), batch_start + max_parallel_candidates)
+            inner_runs = []
+
+            # Run code to evaluate
+            for response_id in range(batch_start, batch_end):
+                self.function_evals += 1
+                # Skip if response is invalid
+                if population[response_id]["code"] is None:
+                    population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid response!")
+                    inner_runs.append((response_id, None))
+                    continue
+
+                logging.info(f"Iteration {self.iteration}: Running Code {response_id}")
+
                 try:
-                    individual["obj"] = float(stdout_str.split('\n')[-2]) if self.obj_type == "min" else -float(stdout_str.split('\n')[-2])
-                    individual["exec_success"] = True
-                except:
-                    population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid std out / objective value!")
-            else: # Otherwise, also provide execution traceback error feedback
-                population[response_id] = self.mark_invalid_individual(population[response_id], traceback_msg)
+                    process = self._run_code(population[response_id], response_id)
+                    inner_runs.append((response_id, process))
+                except Exception as e: # If code execution fails
+                    logging.info(f"Error for response_id {response_id}: {e}")
+                    population[response_id] = self.mark_invalid_individual(population[response_id], str(e))
+                    inner_runs.append((response_id, None))
 
-            ast_str = f"{individual['ast']:.6f}" if individual.get('ast') is not None else "None"
-            avg_runtime_str = (
-                f"{individual['avg_runtime']:.6f}"
-                if individual.get("avg_runtime") is not None
-                else "None"
-            )
-            logging.info(
-                f"Iteration {self.iteration}, response_id {response_id}: "
-                f"Ast: {ast_str}, Avg.running time: {avg_runtime_str}, "
-                f"Objective value: {individual['obj']}"
-            )
+            # Update population with objective values
+            for response_id, inner_run in inner_runs:
+                if inner_run is None: # If code execution fails, skip
+                    continue
+                try:
+                    inner_run.communicate(timeout=self.cfg.timeout) # Wait for code execution to finish
+                except subprocess.TimeoutExpired as e:
+                    logging.info(f"Error for response_id {response_id}: {e}")
+                    population[response_id] = self.mark_invalid_individual(population[response_id], str(e))
+                    inner_run.kill()
+                    continue
+
+                individual = population[response_id]
+                stdout_filepath = individual["stdout_filepath"]
+                with open(stdout_filepath, 'r',encoding="utf-8") as f:  # read the stdout file
+                    stdout_str = f.read()
+                traceback_msg = filter_traceback(stdout_str)
+
+                individual = population[response_id]
+                ast_match = re.search(r"Anti-plagiarism similarity:\s*([0-9]+(?:\.[0-9]+)?)", stdout_str)
+                individual["ast"] = float(ast_match.group(1)) if ast_match else None
+                avg_runtime_match = re.search(
+                    r"Average runtime seconds:\s*([0-9]+(?:\.[0-9]+)?)",
+                    stdout_str,
+                )
+                individual["avg_runtime"] = (
+                    float(avg_runtime_match.group(1)) if avg_runtime_match else None
+                )
+                # Store objective value for each individual
+                if traceback_msg == '': # If execution has no error
+                    try:
+                        individual["obj"] = float(stdout_str.split('\n')[-2]) if self.obj_type == "min" else -float(stdout_str.split('\n')[-2])
+                        individual["exec_success"] = True
+                    except:
+                        population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid std out / objective value!")
+                else: # Otherwise, also provide execution traceback error feedback
+                    population[response_id] = self.mark_invalid_individual(population[response_id], traceback_msg)
+
+                ast_str = f"{individual['ast']:.6f}" if individual.get('ast') is not None else "None"
+                avg_runtime_str = (
+                    f"{individual['avg_runtime']:.6f}"
+                    if individual.get("avg_runtime") is not None
+                    else "None"
+                )
+                logging.info(
+                    f"Iteration {self.iteration}, response_id {response_id}: "
+                    f"Ast: {ast_str}, Avg.running time: {avg_runtime_str}, "
+                    f"Objective value: {individual['obj']}"
+                )
         return population
 
 
