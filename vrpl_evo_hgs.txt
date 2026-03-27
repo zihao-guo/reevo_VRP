@@ -1,0 +1,56 @@
+1. 检查现有 `cvrp_hgs`、`ovrp_hgs`、`ovrptw_hgs`、`vrpb_hgs` 的目录结构与运行方式，确认本次应沿用同一套 HGS/C++ 演化链路，只新建 `vrpl_hgs` 问题与配置。
+2. 检查 `data/generated/VRPL/101` 与 `data/opt/VRPL/101`，确认 VRPL 数据与 baseline 已经存在；同时发现仓库里 `vrpb` 使用了小写软链接，因此本次 `vrpl` 也按同样方式适配小写路径。
+3. **！！！** 复制 `reevo/prompts/cvrp_hgs` 到 `reevo/prompts/vrpl_hgs`，并仅把其中与问题描述相关的 `CVRP/cvrp` 文案替换为 `VRPL/vrpl`。
+4. **！！！** 复制 `reevo/problems/cvrp_hgs` 到 `reevo/problems/vrpl_hgs`，并严格按要求仅做 `cvrp -> vrpl` 的直接替换，不额外改逻辑。
+5. **！！！** 新建 `reevo/cfg/problem/vrpl_hgs.yaml`，整体沿用 `cvrp_hgs.yaml`，改为：
+   - `problem_name: vrpl_hgs`
+   - `dataset_dir: data/generated/vrpl/101`
+   - `baseline_dir: data/opt/vrpl/101`
+   - `build_lock: problems/vrpl_hgs/build.lock`
+   - `plagiarism_threshold: 0.95`
+6. 新建本地软链接：
+   - `data/generated/vrpl -> VRPL`
+   - `data/opt/vrpl -> VRPL`
+   这样 YAML 使用小写路径时仍能命中真实的大写数据目录。
+7. 检查 `reevo.py` 后确认 `vrpl_hgs` 不在特殊 C++ 流水线白名单内；如果不补这一个入口，`main.py problem=vrpl_hgs` 无法走 `code_extraction.py + 独立 .cpp 候选 + eval.py` 这条链。
+8. **！！！** 最小修改 `reevo.py`，仅在 `_uses_specialized_cpp_pipeline()` 中把 `vrpl_hgs` 加入白名单，其他主流程保持不动，并复用现有 `# //modify` 风格。
+9. 使用 `.venv/bin/python -m py_compile` 检查：
+   - `problems/vrpl_hgs/eval.py`
+   - `problems/vrpl_hgs/anti_plagiarism.py`
+   - `problems/vrpl_hgs/code_extraction.py`
+   - `reevo.py`
+   - `main.py`
+   结果均通过。
+10. 使用 seed 候选直接运行 `problems/vrpl_hgs/eval.py`：
+    - 命令：`.venv/bin/python problems/vrpl_hgs/eval.py 50 /home/zguo/Coding/reevo train /home/zguo/Coding/reevo/problems/vrpl_hgs/gpt.py`
+    - 结果：50/50 可行，说明 `vrpl_hgs` 的数据路径、并行沙箱、增量编译与批量评测链路已经跑通。
+11. 记录 seed 版本的反抄袭结果：
+    - `Anti-plagiarism similarity: 0.938987`
+    - 小于阈值 `0.95`，因此 `vrpl_hgs` 的默认候选已经满足不与原始参考过于相似的要求。
+12. 使用本地模型做 smoke test：
+    - 命令：`export LOCAL_LLM_API_KEY=EMPTY && .venv/bin/python main.py problem=vrpl_hgs llm_client=local init_pop_size=3 pop_size=2 max_fe=4 timeout=1800`
+    - 输出目录：`reevo/outputs/vrpl_hgs-hgs/2026-03-27_18-40-42`
+13. smoke run 结束后检查 `DONE/`，确认至少有两个可行解，实际得到 4 个文件对：
+    - `problem_iter0_candidate0_selective_route_exchange.cpp/.txt`
+    - `problem_iter1_candidate0_selective_route_exchange.cpp/.txt`
+    - `problem_iter1_candidate1_selective_route_exchange.cpp/.txt`
+    - `problem_iter1_candidate2_selective_route_exchange.cpp/.txt`
+14. 使用 `reevo/problems/vrpl_hgs/code_extraction.py` 对生成响应 `problem_iter1_response0.txt` 提取代码，成功提取到完整 C++ 文件，长度为 `6126` 字符。
+15. 使用 `reevo/problems/vrpl_hgs/anti_plagiarism.py` 对提取结果进行 `0.95` 阈值复核：
+    - `SIMILARITY 0.760231`
+    - `THRESHOLD_OK 0.95`
+    说明该生成候选与原始参考差异充足。
+16. 对比 `final/selective_route_exchange.cpp` 与 `DONE` 内候选后发现，`main.py` 自动导出的 `final` 仍然回落到了 seed 版本；因此为满足“生成后替换正式源码”的要求，改选已通过反抄袭复核的 `problem_iter1_candidate0_selective_route_exchange.cpp` 作为正式替换版本。
+17. **！！！** 用 `outputs/vrpl_hgs-hgs/2026-03-27_18-40-42/DONE/problem_iter1_candidate0_selective_route_exchange.cpp` 替换 `reevo/utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`。
+18. 对真实 `reevo/utils/pyvrp_rep` 做本地重建验证。第一次直接执行构建失败，原因不是 C++ 代码，而是：
+    - 仓库根目录误用了错误的 `buildtools/build_extensions.py` 路径；
+    - 随后发现 `meson` 在真实构建环境里找不到 `python` 可执行名。
+19. 处理构建环境问题后重新验证：
+    - 删除纯构建产物目录 `utils/pyvrp_rep/build-py312`
+    - 使用 `export PATH=/home/zguo/Coding/reevo/.venv/bin:$PATH`
+    - 再执行 `/home/zguo/Coding/reevo/.venv/bin/python buildtools/build_extensions.py --build_dir build-py312 --build_type release`
+    - 最终成功完成真实源码的增量/重建编译并安装 `_pyvrp`、`_crossover` 等扩展。
+20. 最后再次对正式源码 `reevo/utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp` 做反抄袭复核：
+    - `SOURCE_SIMILARITY 0.760231`
+    - `SOURCE_THRESHOLD_OK 0.95`
+    同时 `sha256` 与 `problem_iter1_candidate0_selective_route_exchange.cpp` 完全一致，确认正式源码已切换到通过阈值校验的生成版本。

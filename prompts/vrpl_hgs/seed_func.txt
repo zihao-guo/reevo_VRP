@@ -90,46 +90,78 @@ pyvrp::Solution pyvrp::crossover::selectiveRouteExchange(
             selectedB[c] = true;
     }
 
-    // MODIFY: Add a route size adjustment step to improve feasibility and penalised cost
-    // This ensures that route sizes are more balanced, reducing the need for large
-    // route reallocations and improving the likelihood of low penalised cost.
-    bool changed = true;
-    while (changed)
+    // MODIFY: Prioritize route selection based on minimal client count differences
+    // This preserves stronger route structure, reduces reallocations, and
+    // minimizes penalized cost changes.
+    while (true)
     {
-        changed = false;
-        for (size_t r = 0; r < numMovedRoutes; ++r)
+        // Difference for moving 'left' in parent A
+        int differenceALeft = 0;
+        size_t currASize = routesA[(startA + numMovedRoutes - 1) % nRoutesA].size();
+        size_t nextASize = routesA[(startA - 1 + nRoutesA) % nRoutesA].size();
+        differenceALeft = std::abs(static_cast<int>(nextASize - currASize));
+
+        // Difference for moving 'right' in parent A
+        int differenceARight = 0;
+        currASize = routesA[startA].size();
+        nextASize = routesA[(startA + numMovedRoutes) % nRoutesA].size();
+        differenceARight = std::abs(static_cast<int>(nextASize - currASize));
+
+        // Difference for moving 'left' in parent B
+        int differenceBLeft = 0;
+        currASize = routesB[(startB + numMovedRoutes - 1) % nRoutesB].size();
+        nextASize = routesB[(startB - 1 + nRoutesB) % nRoutesB].size();
+        differenceBLeft = std::abs(static_cast<int>(nextASize - currASize));
+
+        // Difference for moving 'right' in parent B
+        int differenceBRight = 0;
+        currASize = routesB[startB].size();
+        nextASize = routesB[(startB + numMovedRoutes) % nRoutesB].size();
+        differenceBRight = std::abs(static_cast<int>(nextASize - currASize));
+
+        int const bestDifference = std::min({differenceALeft,
+                                             differenceARight,
+                                             differenceBLeft,
+                                             differenceBRight});
+
+        if (bestDifference >= 0)  // there are no further improving moves
+            break;
+
+        if (bestDifference == differenceALeft)
         {
-            size_t indexA = (startA + r) % nRoutesA;
-            size_t indexB = (startB + r) % nRoutesB;
+            for (Client c : routesA[(startA + numMovedRoutes - 1) % nRoutesA])
+                selectedA[c] = false;
 
-            // Try to minimize client count imbalance between selected routes
-            auto sizeA = routesA[indexA].size();
-            auto sizeB = routesB[indexB].size();
+            startA = (startA - 1 + nRoutesA) % nRoutesA;
+            for (Client c : routesA[startA])
+                selectedA[c] = true;
+        }
+        else if (bestDifference == differenceARight)
+        {
+            for (Client c : routesA[startA])
+                selectedA[c] = false;
 
-            if (sizeA > sizeB + 2)  // if route from A is significantly larger than route from B
-            {
-                for (Client c : routesA[indexA])
-                    selectedA[c] = false;
+            startA = (startA + 1) % nRoutesA;
+            for (Client c : routesA[(startA + numMovedRoutes - 1) % nRoutesA])
+                selectedA[c] = true;
+        }
+        else if (bestDifference == differenceBLeft)
+        {
+            for (Client c : routesB[(startB + numMovedRoutes - 1) % nRoutesB])
+                selectedB[c] = false;
 
-                for (Client c : routesA[(indexA + 1) % nRoutesA])
-                    selectedA[c] = true;
+            startB = (startB - 1 + nRoutesB) % nRoutesB;
+            for (Client c : routesB[startB])
+                selectedB[c] = true;
+        }
+        else if (bestDifference == differenceBRight)
+        {
+            for (Client c : routesB[startB])
+                selectedB[c] = false;
 
-                startA = (startA + 1) % nRoutesA;
-                changed = true;
-                break;
-            }
-            else if (sizeB > sizeA + 2)
-            {
-                for (Client c : routesB[indexB])
-                    selectedB[c] = false;
-
-                for (Client c : routesB[(indexB + 1) % nRoutesB])
-                    selectedB[c] = true;
-
-                startB = (startB + 1) % nRoutesB;
-                changed = true;
-                break;
-            }
+            startB = (startB + 1) % nRoutesB;
+            for (Client c : routesB[(startB + numMovedRoutes - 1) % nRoutesB])
+                selectedB[c] = true;
         }
     }
 

@@ -134,7 +134,7 @@ class ReEvo:
 
     def _uses_specialized_cpp_pipeline(self) -> bool:
         # //modify Detect problems that evolve standalone C++ source files instead of Python functions.
-        return self.problem in {"cvrp_hgs", "ovrp_hgs", "ovrptw_hgs", "vrpb_hgs"}
+        return self.problem in {"cvrp_hgs", "ovrp_hgs", "ovrptw_hgs", "vrpb_hgs", "vrpl_hgs"}
 
     def _extract_individual_code(self, content: str) -> Optional[str]:
         # //modify Switch code extraction based on the problem's code carrier.
