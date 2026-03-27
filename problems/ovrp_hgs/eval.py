@@ -20,11 +20,14 @@ def _repo_root() -> Path:
 
 
 PROBLEM_DIR = Path(__file__).resolve().parent
+REPO_ROOT = _repo_root()
 if str(PROBLEM_DIR) not in sys.path:
     sys.path.insert(0, str(PROBLEM_DIR))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from anti_plagiarism import assert_below_threshold  # noqa: E402
-from code_extraction import extract_cpp_code  # noqa: E402
+from problems.hgs_share.anti_plagiarism import assert_below_threshold, similarity_ratio  # noqa: E402
+from problems.hgs_share.code_extraction import extract_cpp_code  # noqa: E402
 
 VRP_FILE_SCALE = 1000
 
@@ -505,8 +508,6 @@ def main() -> None:
             float(cfg["plagiarism_threshold"]),
         )
     else:
-        from anti_plagiarism import similarity_ratio
-
         similarity = similarity_ratio(candidate_code, reference_code)
 
     if candidate_path is None:

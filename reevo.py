@@ -73,6 +73,7 @@ class ReEvo:
         prompt_path_suffix = "_black_box" if self.problem_type == "black_box" else ""
         problem_prompt_path = f'{self.prompt_dir}/{self.problem}{prompt_path_suffix}'
         problem_utils_path = f"{problem_prompt_path}/utils"
+        hgs_common_utils_path = f"{self.prompt_dir}/hgs_common"
         self.seed_func = file_to_string(f'{problem_prompt_path}/seed_func.txt')
         self.func_signature = file_to_string(f'{problem_prompt_path}/func_signature.txt')
         self.func_desc = file_to_string(f'{problem_prompt_path}/func_desc.txt')
@@ -83,28 +84,26 @@ class ReEvo:
             self.external_knowledge = ""
 
         if self._uses_specialized_cpp_pipeline():
-            # //modify Load the per-problem C++ extractor so ovrp_hgs uses
-            # //modify problems/ovrp_hgs/code_extraction.py instead of the
-            # //modify previously hard-coded CVRP helper.
+            # //modify Reuse the shared HGS C++ extractor across all HGS variants.
             extractor_module = importlib.import_module(
-                f"problems.{self.problem}.code_extraction"
+                "problems.hgs_share.code_extraction"
             )
             self.cpp_code_extractor = extractor_module.extract_cpp_code
 
-        if self._uses_specialized_cpp_pipeline() and os.path.isdir(problem_utils_path):
-            # //modify Route CVRP HGS through its specialised C++ prompt stack without a subclass.
-            self.system_generator_prompt = file_to_string(f"{problem_utils_path}/system_generator.txt")
+        if self._uses_specialized_cpp_pipeline():
+            # //modify Route HGS problems through the specialised C++ prompt stack.
+            self.system_generator_prompt = self._load_hgs_prompt("system_generator.txt", problem_utils_path, hgs_common_utils_path)
             self.system_reflector_prompt = file_to_string(f'{self.prompt_dir}/common/system_reflector.txt')
-            self.user_reflector_st_prompt = file_to_string(f"{problem_utils_path}/user_reflector_st.txt")
+            self.user_reflector_st_prompt = self._load_hgs_prompt("user_reflector_st.txt", problem_utils_path, hgs_common_utils_path)
             self.user_reflector_lt_prompt = file_to_string(f'{self.prompt_dir}/common/user_reflector_lt.txt')
-            self.crossover_prompt = file_to_string(f"{problem_utils_path}/crossover.txt")
-            self.mutation_prompt = file_to_string(f"{problem_utils_path}/mutation.txt")
-            self.user_generator_prompt = file_to_string(f"{problem_utils_path}/user_generator.txt").format(
+            self.crossover_prompt = self._load_hgs_prompt("crossover.txt", problem_utils_path, hgs_common_utils_path)
+            self.mutation_prompt = self._load_hgs_prompt("mutation.txt", problem_utils_path, hgs_common_utils_path)
+            self.user_generator_prompt = self._load_hgs_prompt("user_generator.txt", problem_utils_path, hgs_common_utils_path).format(
                 func_name=self.func_name,
                 problem_desc=self.problem_desc,
                 func_desc=self.func_desc,
             )
-            self.seed_prompt = file_to_string(f"{problem_utils_path}/seed.txt").format(
+            self.seed_prompt = self._load_hgs_prompt("seed.txt", problem_utils_path, hgs_common_utils_path).format(
                 seed_func=self.seed_func,
                 func_name=self.func_name,
             )
@@ -135,6 +134,19 @@ class ReEvo:
     def _uses_specialized_cpp_pipeline(self) -> bool:
         # //modify Detect problems that evolve standalone C++ source files instead of Python functions.
         return self.problem in {"cvrp_hgs", "ovrp_hgs", "ovrptw_hgs", "vrpb_hgs", "vrpl_hgs", "vrptw_hgs"}
+
+    def _load_hgs_prompt(self, filename: str, problem_utils_path: str, hgs_common_utils_path: str) -> str:
+        common_prompt_path = f"{hgs_common_utils_path}/{filename}"
+        if os.path.exists(common_prompt_path):
+            return file_to_string(common_prompt_path)
+
+        problem_prompt_path = f"{problem_utils_path}/{filename}"
+        if os.path.exists(problem_prompt_path):
+            return file_to_string(problem_prompt_path)
+
+        raise FileNotFoundError(
+            f"Missing HGS prompt template '{filename}' in '{hgs_common_utils_path}' or '{problem_utils_path}'."
+        )
 
     def _extract_individual_code(self, content: str) -> Optional[str]:
         # //modify Switch code extraction based on the problem's code carrier.
