@@ -1,7 +1,7 @@
 1. 复制 `reevo/prompts/cvrp_hgs` 到 `reevo/prompts/vrpb_hgs`，并将其中的 `cvrp_hgs/CVRP/cvrp` 替换为 `vrpb_hgs/VRPB/vrpb`，用于新问题的 prompt 体系。
 2. 复制 `reevo/problems/cvrp_hgs` 到 `reevo/problems/vrpb_hgs`，并按要求仅做 `cvrp_hgs/CVRP/cvrp` 到 `vrpb_hgs/VRPB/vrpb` 的直接替换，不额外改动其中逻辑。
-3. 新建 `reevo/cfg/problem/vrpb_hgs.yaml`，整体沿用 `cvrp_hgs` 配置，仅切换到 `problem_name: vrpb_hgs`、`dataset_dir: data/generated/vrpb/101`、`baseline_dir: data/opt/vrpb/101`，并把 `plagiarism_threshold` 固定为 `0.95`。
-4. 为了让小写路径可直接工作，补充了 `data/generated/vrpb -> data/generated/VRPB` 和 `data/opt/vrpb -> data/opt/VRPB` 的入口。
+3. 新建 `reevo/cfg/problem/vrpb_hgs.yaml`，整体沿用 `cvrp_hgs` 配置，仅切换到 `problem_name: vrpb_hgs`、`dataset_dir: data/generated/VRPB/101`、`baseline_dir: data/opt/VRPB/101`，并把 `plagiarism_threshold` 固定为 `0.95`。
+4. 保持 VRPB 数据路径统一使用大写目录名 `data/generated/VRPB` 与 `data/opt/VRPB`，不引入小写路径别名。
 5. **！！！** 修改 `reevo/reevo.py`：仅在 `_uses_specialized_cpp_pipeline()` 中加入 `vrpb_hgs`，让框架把该问题视为 C++ HGS 问题处理。
 6. **！！！** 修改 `reevo/utils/pyvrp_rep/pyvrp/read.py`：修复 VRPB 的 `BACKHAUL_SECTION` 解析，将其从“回程客户编号列表”转换为逐点 `pickup` 向量，并把 `demand` 切分为 linehaul 的 `delivery` 与 backhaul 的 `pickup`。所有新增注释均以 `# //modify` 标记。
 7. 使用 `.venv` 直接运行 `reevo/problems/vrpb_hgs/eval.py`，先验证当前候选 `reevo/utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`：

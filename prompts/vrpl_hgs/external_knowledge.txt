@@ -1,6 +1,6 @@
 - The candidate must be a complete compilable C++17 `selective_route_exchange.cpp` file, not a fragment.
 - Evaluation compiles the candidate inside `utils/pyvrp_rep` and then runs PyVRP on the configured VRPL instance set.
-- Optimisation target is average delta gap versus the original HGS reference stored in `data/opt/vrpl/101/pyvrp` (`((candidate objective / baseline objective) - 1) * 100`); lower is better, and values below `0.00` beat the baseline.
+- Optimisation target is average delta gap versus the original HGS reference stored in `data/opt/VRPL/101/pyvrp` (`((candidate objective / baseline objective) - 1) * 100`); lower is better, and values below `0.00` beat the baseline.
 - Keep `pyvrp::crossover::selectiveRouteExchange(...)` unchanged and preserve required includes.
 - Use only existing PyVRP APIs that are already available in the baseline file and current repository.
 - Prefer localized, reliable edits over large rewrites, and avoid new dependencies.

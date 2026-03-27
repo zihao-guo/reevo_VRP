@@ -364,7 +364,7 @@ def solve_instance(
     baseline_runtime = float(baseline["solver_runtime_seconds"])
     ortools_obj = float(baseline["ortools_obj"])
     ortools_runtime = float(baseline["ortools_runtime_seconds"])
-    # //modify Optimise against the original HGS baseline stored under data/opt/vrpl/101/pyvrp.
+    # //modify Optimise against the original HGS baseline stored under data/opt/VRPL/101/pyvrp.
     delta_gap_percent_vs_baseline = ((obj / baseline_obj) - 1.0) * 100.0
 
     return {

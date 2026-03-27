@@ -1,7 +1,7 @@
 # Task identity and objective
 problem_name: vrpb_hgs  # 问题名称，用于在框架里标识这个任务。
 problem_type: hgs  # 问题类别，这里表示基于 HGS/PyVRP 的求解任务。
-description: Improving full C++17 `selective_route_exchange.cpp` for PyVRP's selective route exchange (SREX) crossover on vrpb instances; training and validation both use all 50 generated vrpb-101 instances against the original HGS reference in `data/opt/vrpb/101/pyvrp` and the OR-Tools reference in `data/opt/vrpb/101/ortools`.  # 任务说明。
+description: Improving full C++17 `selective_route_exchange.cpp` for PyVRP's selective route exchange (SREX) crossover on vrpb instances; training and validation both use all 50 generated vrpb-101 instances against the original HGS reference in `data/opt/VRPB/101/pyvrp` and the OR-Tools reference in `data/opt/VRPB/101/ortools`.  # 任务说明。
 obj_type: min  # 优化目标方向，min 表示目标值越小越好。
 problem_size: 50  # 数据集实例总数；final 验证默认会评估这 50 个实例。
 
@@ -12,8 +12,8 @@ candidate_cpp: utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp 
 original_reference: data/selective_route_exchange.original.cpp  # 原始参考代码，用于相似度/抄袭检测。
 
 # Data, baselines, and source tree
-dataset_dir: data/generated/vrpb/101  # vrpb 数据集目录。
-baseline_dir: data/opt/vrpb/101  # 对照结果根目录；当前使用 `pyvrp/<instance>.sol` 作为 original HGS reference，`ortools/<instance>.sol` 作为 OR-Tools reference。
+dataset_dir: data/generated/VRPB/101  # VRPB 数据集目录。
+baseline_dir: data/opt/VRPB/101  # 对照结果根目录；当前使用 `pyvrp/<instance>.sol` 作为 original HGS reference，`ortools/<instance>.sol` 作为 OR-Tools reference。
 pyvrp_root: utils/pyvrp_rep  # PyVRP 副本根目录；评测时会从这里复制源码到临时沙箱。
 
 # Build and evaluation execution
