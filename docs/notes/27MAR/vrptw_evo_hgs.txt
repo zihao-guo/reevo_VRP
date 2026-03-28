@@ -3,14 +3,14 @@
 3. **！！！** 新建 `prompts/vrptw_hgs`，直接从 `prompts/cvrp_hgs` 复制，只做问题名与问题描述的字面替换。
 4. **！！！** 新建 `cfg/problem/vrptw_hgs.yaml`，核心配置为：
    - `problem_name: vrptw_hgs`
-   - `dataset_dir: data/generated/vrptw/101`
-   - `baseline_dir: data/opt/vrptw/101`
+   - `dataset_dir: data/generated/VRPTW/101`
+   - `baseline_dir: data/opt/VRPTW/101`
    - `build_lock: problems/vrptw_hgs/build.lock`
    - `plagiarism_threshold: 0.95`
 5. **！！！** 为了让新问题复用现有独立 C++ 演化流水线，对 `reevo.py` 做最小适配，只在 `_uses_specialized_cpp_pipeline()` 白名单中补入 `vrptw_hgs`，其他 Python 演化逻辑不改。
-6. **！！！** 由于仓库现有数据目录是大写 `VRPTW`，为保持你要求的小写配置路径不改主逻辑，增加目录别名：
-   - `data/generated/vrptw -> VRPTW`
-   - `data/opt/vrptw -> VRPTW`
+6. 后续确认直接使用真实目录更稳妥，因此 `vrptw_hgs` 固定读取大写目录：
+   - `data/generated/VRPTW/101`
+   - `data/opt/VRPTW/101`
 7. 选取一个已验证可编译的完整 SREX 响应作为候选源，临时包装成 fenced C++ 响应文本，然后使用 `problems/vrptw_hgs/code_extraction.py` 提取代码，生成根目录 `selective_route_exchange.cpp`。
 8. 使用 `problems/vrptw_hgs/anti_plagiarism.py` 按阈值 `0.95` 对 `selective_route_exchange.cpp` 与 `data/selective_route_exchange.original.cpp` 做检查，归一化相似度为 `0.758522`，通过反抄袭校验。
 9. **！！！** 用生成出的 `selective_route_exchange.cpp` 替换 `utils/pyvrp_rep/pyvrp/cpp/crossover/selective_route_exchange.cpp`，并同步到 `problems/vrptw_hgs/gpt.py`，保证默认候选与当前正式源码一致。

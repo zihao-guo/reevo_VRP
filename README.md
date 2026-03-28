@@ -1,4 +1,5 @@
-# Utils README
+# EvoHGS
+Evolving Hybrid Genetic Search via LLMs for Multi-Task Vehicle Routing
 
 ## 数据与节点规模
 
@@ -101,8 +102,7 @@ python problems/vrptw_hgs/eval.py -1 . train selective_route_exchange.cpp
 
 说明：
 - `vrptw_hgs` 会读取 `cfg/problem/vrptw_hgs.yaml`
-- 数据目录配置为 `data/generated/vrptw/101` 和 `data/opt/vrptw/101`
-- 当前仓库已通过目录别名兼容到实际的 `VRPTW` 数据目录
+- 数据目录配置为 `data/generated/VRPTW/101` 和 `data/opt/VRPTW/101`
 - `utils/pyvrp_rep` 不需要手动预编译，评测时会自动增量 build
 
 ## 其他本地模型运行

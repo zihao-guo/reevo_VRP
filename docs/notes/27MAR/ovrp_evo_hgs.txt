@@ -90,3 +90,43 @@
    - 当前可直接复用：
      - `outputs/ovrp_hgs-hgs/2026-03-27_16-21-48/DONE/problem_iter0_candidate0_selective_route_exchange.cpp`
      - `outputs/ovrp_hgs-hgs/2026-03-27_16-21-48/DONE/problem_iter1_candidate0_selective_route_exchange.cpp`
+29. 2026-03-28 继续排查 `outputs/ovrp_hgs-hgs/2026-03-28_22-55-03/DONE/` 中 `Obj` 为什么长期停留在 `61.x`，先核对日志、`DONE/*.txt` 和评测实现，确认这里的 `Obj` 不是原始路径长度，而是“相对 `data/opt/OVRP/101/pyvrp` baseline 的平均百分比 gap”。
+30. 本次排查确认：`61.x` 不是某个新候选把 SREX 明显改坏导致的，因为 seed 原始实现 `problem_iter0_candidate0` 自己就评出了 `Obj: 61.546956`，而所谓最佳候选 `problem_iter1_candidate0` 也只是从 `61.546956` 微降到 `61.538928`。
+31. 根因定位为 OVRP 评测口径与 baseline 不一致：
+   - `data/utils/solve_reference_pyvrp.py` 中 baseline 成本对 open problem 使用 open-route 口径，最后一段回仓边不计费；
+   - `problems/ovrp_hgs/eval.py` 中 `calculate_exact_ovrp_cost()` 当时无条件按 `sequence = [1, *visits, 1]` 累加，把每条路都当成 closed route 处理；
+   - 结果是候选解按“要回仓”计费，而 baseline 仍按“开放路径”计费，平均 gap 被系统性抬高。
+32. 现场证据：
+   - `problem_iter1_stdout0.txt` 里 smoke test objective 为 `15.665426`，而 `data/opt/OVRP/101/pyvrp/n101-0001.sol` 的 baseline `Cost` 只有 `9.584453`；
+   - 用同一份 baseline `.sol` 重新按 closed-route 方式计费后，数值会显著上升到同一量级，和日志里的 `61.x` 平均 gap 现象一致。
+33. 修复方式：
+   - 在 `problems/ovrp_hgs/eval.py` 中补充 `OPEN_PROBLEMS`；
+   - `calculate_exact_ovrp_cost()` 先从实例头读取 `TYPE`；
+   - 若属于 open problem，则在累加边代价时跳过回到 depot 的最后一段，和 baseline 生成脚本保持一致。
+34. 为避免回归，新增 `problems/ovrp_hgs/test_eval.py`：
+   - 直接读取 `data/opt/OVRP/101/pyvrp/n101-0001.sol`；
+   - 将其中 route 包装成 stub route；
+   - 断言 `calculate_exact_ovrp_cost()` 与 `.sol` 中记录的 baseline `Cost` 在 `1e-6` 误差内一致。
+35. 同步检查发现 `problems/ovrptw_hgs/eval.py` 也保留了同样的 closed-route 写法，而 OVRPTW 同样属于 open problem；因此已同步按相同思路修复，并补上 `problems/ovrptw_hgs/test_eval.py`，避免 OVRPTW 后续复现同类偏差。
+36. 继续排查后又确认：即使把 open-route 成本统计口径修正，`ovrp_hgs` 的 seed 若仍显著差于 baseline，也不代表 original SREX 真比 baseline 差很多；更深层的原因是评测求解入口本身与 baseline 不一致。
+37. 具体验证：
+   - `outputs/ovrp_hgs-hgs/2026-03-28_23-26-56/DONE/problem_iter0_candidate0_selective_route_exchange.cpp` 与 `data/selective_route_exchange.original.cpp` 完全一致；
+   - 但该 run 的 seed 仍得到 `Obj: 24.923794`，说明问题不在候选代码，而在“同一份 original 被放进了不同的问题建模链路里比较”。
+38. 根因进一步定位为 `read(...)+solve(...)` 与 baseline 的 `build_model()+Model.solve()` 在 open OVRP 上不等价：
+   - `data/utils/solve_reference_pyvrp.py` 中 baseline 会为 `OVRP` 显式构造独立的 `end_depot`，并把到 `end_depot` 的边代价置为 `0`，严格按 open-route 建模；
+   - `utils/pyvrp_rep/pyvrp/read.py` 当前读取 `OVRP` 时仍固定把 `VehicleType(start_depot=depot, end_depot=depot)`，即按 closed route 读入；
+   - 因此旧版 `problems/ovrp_hgs/eval.py` 虽然在 cost 统计上已改为 open-route 口径，但求解阶段仍在 closed-route 模型上运行，导致 original 继续被错误放大为相对 baseline 的大 gap。
+39. 针对这个问题，已将 `problems/ovrp_hgs/eval.py` 的求解入口改为与 baseline 完全一致：
+   - 不再使用 `pyvrp.read(...)+solve(...)`；
+   - 改为在评测阶段本地解析 `.vrp`，复刻 baseline 的 `build_model()` 逻辑；
+   - 使用 `Model.solve(stop=MaxIterations(...), seed=...)` 求解，再按同一 open-route 口径计算 objective。
+40. 为确保修复确实消除了“original 还明显输给 baseline”的假象，使用 original `selective_route_exchange.cpp` 做单实例沙箱验证：
+   - 实例：`n101-0001.vrp`
+   - 求得 `obj = 9.584452837473892`
+   - 对应 baseline `Cost = 9.584453`
+   - `delta_gap_percent_vs_baseline = -1.6957264814543294e-06`
+   - 说明 OVRP 单实例上 original 与 baseline 已在数值上重新对齐，剩余误差仅为浮点舍入。
+41. 结论更新：
+   - `61.x` 主要来自 open-route 成本统计口径错误；
+   - 修正成本统计后残留的 `24.9`，主要来自 `read()` 在 OVRP 上仍按 closed-route 读模；
+   - 现在 `ovrp_hgs/eval.py` 已整体切换到 baseline 同款 `build_model()+Model.solve()`，从而消除了“seed=original 但仍明显差于 baseline”的评测假差距。

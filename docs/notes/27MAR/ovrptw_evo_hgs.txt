@@ -24,3 +24,32 @@
 13. 最终 `DONE/` 中至少有两份可行解，并生成对应侧写文件：
     - `DONE/problem_iter0_candidate0_selective_route_exchange.txt`
     - `DONE/problem_iter1_candidate0_selective_route_exchange.txt`
+14. 2026-03-28 在排查 `ovrp_hgs` 的 `Obj` 长期维持在 `61.x` 时，顺带复查了 `ovrptw_hgs` 的评测口径，发现 `problems/ovrptw_hgs/eval.py` 中 `calculate_exact_ovrptw_cost()` 也和当时的 `ovrp_hgs` 一样，默认把每条路线按 closed route 处理。
+15. 这会与 `data/utils/solve_reference_pyvrp.py` 的 baseline 口径冲突：
+    - baseline 对 `OVRPTW` 这类 open problem 不计最后一段回仓边；
+    - 若 `ovrptw_hgs` 评测继续无条件计算 `[depot, ..., depot]`，则候选成本会被系统性高估，进而把相对 baseline 的 gap 拉大。
+16. 因此已同步修复 `problems/ovrptw_hgs/eval.py`：
+    - 补充 `OPEN_PROBLEMS`；
+    - 从实例头解析 `TYPE`；
+    - 对 open problem 跳过回到 depot 的末段成本，确保与 baseline 生成逻辑一致。
+17. 同时新增 `problems/ovrptw_hgs/test_eval.py` 作为回归测试：
+    - 直接读取 `data/opt/OVRPTW/101/pyvrp/n101-0001.sol`；
+    - 将 `.sol` 中的 route 包装成 stub route；
+    - 断言 `calculate_exact_ovrptw_cost()` 与 baseline 文件里的 `Cost` 在 `1e-6` 误差内一致。
+18. 进一步对照 `ovrp_hgs` 的排查过程后确认：`ovrptw_hgs` 不仅存在 open-route 成本统计口径问题，也存在同一类“求解入口与 baseline 不一致”的风险。
+19. 具体原因与 OVRP 相同：
+   - baseline 生成脚本 `data/utils/solve_reference_pyvrp.py` 对 `OVRPTW` 会显式创建独立的 `end_depot`，按 open-route 建模后再调用 `Model.solve()`；
+   - 旧版 `problems/ovrptw_hgs/eval.py` 则是 `pyvrp.read(...)+solve(...)`，而当前 `utils/pyvrp_rep/pyvrp/read.py` 在 open 问题上仍固定把 `end_depot` 设回起始 depot；
+   - 因此即便候选代码就是 original，实现上也可能因为“求解模型不一致”而被评出虚高 gap。
+20. 这意味着 `ovrptw_hgs` 后续若继续追求与 baseline 的严格可比性，最终也应像 `ovrp_hgs` 一样，把评测入口整体切换到与 baseline 对齐的手工建模链路，即 `build_model()+Model.solve()`，而不能只修 cost 统计公式。
+21. 现已按上述结论落实修改 `problems/ovrptw_hgs/eval.py`：
+    - 不再使用 `pyvrp.read(...)+solve(...)`；
+    - 改为在评测阶段本地解析 `.vrp`，复刻 baseline 的 `build_model()` 逻辑；
+    - 使用 `Model.solve(stop=MaxIterations(...), seed=...)` 求解，再按同一 open-route 口径计算 objective。
+22. 同步修正 `build_env()`，把 `Path(sys.executable).resolve().parent` 改回 `Path(sys.executable).parent`，确保 Meson/Ninja 优先走 `.venv/bin/python3` 与 `.venv/bin/ninja`，避免沙箱编译漂到系统 Python。
+23. 使用 original `selective_route_exchange.cpp` 做单实例沙箱验证：
+    - 实例：`n101-0001.vrp`
+    - 求得 `obj = 12.70193575430173`
+    - 对应 baseline `Cost = 12.701936`
+    - `delta_gap_percent_vs_baseline = -1.9343371793212327e-06`
+    - 说明 OVRPTW 单实例上 original 与 baseline 也已在数值上重新对齐，剩余误差仅为浮点舍入。

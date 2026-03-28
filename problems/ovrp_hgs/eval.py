@@ -8,6 +8,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import time
 from pathlib import Path
 from functools import lru_cache
 
@@ -30,6 +31,35 @@ from problems.hgs_share.anti_plagiarism import assert_below_threshold, similarit
 from problems.hgs_share.code_extraction import extract_cpp_code  # noqa: E402
 
 VRP_FILE_SCALE = 1000
+COORD_SCALE = 100000
+OPEN_PROBLEMS = {
+    "OVRP",
+    "OVRPTW",
+    "OVRPB",
+    "OVRPL",
+    "OVRPBL",
+    "OVRPBTW",
+    "OVRPLTW",
+    "OVRPBLTW",
+}
+TW_PROBLEMS = {
+    "VRPTW",
+    "OVRPTW",
+    "VRPBTW",
+    "OVRPBTW",
+    "VRPLTW",
+    "OVRPLTW",
+    "VRPBLTW",
+    "OVRPBLTW",
+}
+SECTION_HEADERS = {
+    "NODE_COORD_SECTION",
+    "DEMAND_SECTION",
+    "TIME_WINDOW_SECTION",
+    "BACKHAUL_SECTION",
+    "DEPOT_SECTION",
+    "EOF",
+}
 
 
 def load_problem_cfg(root_dir: Path) -> dict:
@@ -138,14 +168,201 @@ def load_reference_solution(
     return {"cost": cost, "runtime_seconds": runtime_seconds}
 
 
+def parse_header(line: str) -> tuple[str | None, str | None]:
+    if ":" not in line:
+        return None, None
+
+    key, value = line.split(":", 1)
+    return key.strip(), value.strip().strip('"')
+
+
+def get_default_depot_end(problem: str) -> float | None:
+    return 4.6 if problem in TW_PROBLEMS else None
+
+
+def parse_vrp_instance(path: Path, file_scale: int) -> tuple[str, dict]:
+    headers = {}
+    coords = {}
+    demands = {}
+    time_windows = {}
+    section = None
+
+    with open(path, "r", encoding="utf-8") as file:
+        for raw_line in file:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line in SECTION_HEADERS:
+                section = None if line == "EOF" else line
+                continue
+
+            if section is None:
+                key, value = parse_header(line)
+                if key is not None:
+                    headers[key] = value
+                continue
+
+            if section == "NODE_COORD_SECTION":
+                idx, x_coord, y_coord = line.split()
+                coords[int(idx)] = (int(x_coord) / file_scale, int(y_coord) / file_scale)
+            elif section == "DEMAND_SECTION":
+                idx, demand = line.split()
+                demands[int(idx)] = int(demand)
+            elif section == "TIME_WINDOW_SECTION":
+                idx, start, end = line.split()
+                time_windows[int(idx)] = (int(start) / file_scale, int(end) / file_scale)
+            elif section == "DEPOT_SECTION" and line == "-1":
+                section = None
+
+    dimension = int(headers["DIMENSION"])
+    problem = headers["TYPE"]
+    depot_xy = [list(coords[1])]
+    node_xy = [list(coords[idx]) for idx in range(2, dimension + 1)]
+    node_demand = [demands.get(idx, 0) for idx in range(2, dimension + 1)]
+
+    fields = {
+        "depot_xy": depot_xy,
+        "node_xy": node_xy,
+        "node_demand": node_demand,
+        "capacity": int(headers["CAPACITY"]),
+        "service_time": None,
+        "tw_start": None,
+        "tw_end": None,
+        "depot_tw_end": None,
+    }
+
+    if "SERVICE_TIME" in headers:
+        service = int(headers["SERVICE_TIME"]) / file_scale
+        fields["service_time"] = [service] * len(node_xy)
+
+    if time_windows:
+        fields["depot_tw_end"] = time_windows.get(1, (0.0, get_default_depot_end(problem)))[1]
+        fields["tw_start"] = [time_windows[idx][0] for idx in range(2, dimension + 1)]
+        fields["tw_end"] = [time_windows[idx][1] for idx in range(2, dimension + 1)]
+
+    return problem, fields
+
+
+def get_depot_end(problem: str, fields: dict) -> float | None:
+    return fields.get("depot_tw_end") or get_default_depot_end(problem)
+
+
+def scale_xy(xy: list[float], coord_scale: int) -> tuple[int, int]:
+    return int(round(xy[0] * coord_scale)), int(round(xy[1] * coord_scale))
+
+
+def flatten_routes(routes: list[list[int]]) -> list[int]:
+    flat_route = []
+    for idx, route in enumerate(routes):
+        if idx:
+            flat_route.append(0)
+        flat_route.extend(route)
+    return flat_route
+
+
+def calc_route_cost(problem: str, depot_xy: list[list[float]], node_xy: list[list[float]], route: list[int]) -> float:
+    coords = [depot_xy[0]] + node_xy
+    sequence = [0] + route + [0]
+    total = 0.0
+
+    for frm, to in zip(sequence[:-1], sequence[1:]):
+        if problem in OPEN_PROBLEMS and to == 0:
+            continue
+        x1, y1 = coords[frm]
+        x2, y2 = coords[to]
+        total += math.hypot(x1 - x2, y1 - y2)
+
+    return total
+
+
+def build_model(problem: str, fields: dict, coord_scale: int):
+    from pyvrp import Model
+
+    model = Model()
+    depot_kwargs = {}
+    depot_end = get_depot_end(problem, fields)
+    if depot_end is not None:
+        depot_kwargs["tw_early"] = 0
+        depot_kwargs["tw_late"] = int(round(depot_end * coord_scale))
+
+    start_depot = model.add_depot(
+        *scale_xy(fields["depot_xy"][0], coord_scale),
+        name="start_depot",
+        **depot_kwargs,
+    )
+    end_depot = start_depot
+    if problem in OPEN_PROBLEMS:
+        end_depot = model.add_depot(
+            *scale_xy(fields["depot_xy"][0], coord_scale),
+            name="end_depot",
+            **depot_kwargs,
+        )
+
+    clients = []
+    for idx, (xy, raw_demand) in enumerate(zip(fields["node_xy"], fields["node_demand"]), start=1):
+        x_coord, y_coord = scale_xy(xy, coord_scale)
+        client_kwargs = {
+            "x": x_coord,
+            "y": y_coord,
+            "delivery": int(round(raw_demand)),
+            "pickup": 0,
+            "name": f"c{idx}",
+        }
+
+        if problem in TW_PROBLEMS:
+            client_kwargs["service_duration"] = int(round(fields["service_time"][idx - 1] * coord_scale))
+            client_kwargs["tw_early"] = int(round(fields["tw_start"][idx - 1] * coord_scale))
+            client_kwargs["tw_late"] = int(round(fields["tw_end"][idx - 1] * coord_scale))
+
+        client = model.add_client(**client_kwargs)
+        clients.append(client)
+
+    locations = [start_depot, *clients]
+    if problem in OPEN_PROBLEMS:
+        locations.append(end_depot)
+
+    for frm in locations:
+        for to in locations:
+            if frm == to:
+                model.add_edge(frm, to, distance=0, duration=0)
+                continue
+
+            if problem in OPEN_PROBLEMS and to == end_depot:
+                model.add_edge(frm, to, distance=0, duration=0)
+                continue
+
+            distance = int(round(math.hypot(frm.x - to.x, frm.y - to.y)))
+            model.add_edge(frm, to, distance=distance, duration=distance)
+
+    vehicle_kwargs = {
+        "num_available": len(clients),
+        "capacity": int(round(fields["capacity"])),
+        "start_depot": start_depot,
+        "end_depot": end_depot,
+    }
+    if depot_end is not None:
+        vehicle_kwargs["tw_early"] = 0
+        vehicle_kwargs["tw_late"] = int(round(depot_end * coord_scale))
+
+    model.add_vehicle_type(**vehicle_kwargs)
+    return model
+
+
 def calculate_exact_ovrp_cost(instance_path: Path, routes) -> float:
     coords: dict[int, tuple[float, float]] = {}
     in_coord_section = False
+    problem_type = None
 
     with open(instance_path, "r", encoding="utf-8") as file:
         for raw_line in file:
             line = raw_line.strip()
             if not line:
+                continue
+
+            if not in_coord_section and line.startswith("TYPE"):
+                _, value = line.split(":", 1)
+                problem_type = value.strip().strip('"')
                 continue
 
             if line == "NODE_COORD_SECTION":
@@ -166,12 +383,15 @@ def calculate_exact_ovrp_cost(instance_path: Path, routes) -> float:
         raise ValueError(f"Failed to parse depot coordinates from `{instance_path}`.")
 
     total_cost = 0.0
+    is_open_problem = problem_type in OPEN_PROBLEMS
     for route in routes:
         # //modify PyVRP's VRPLIB reader stores depot at index 0, so client
         # //modify visits must shift by +1 to match the original file numbering.
         visits = [visit + 1 for visit in route.visits()]
         sequence = [1, *visits, 1]
         for frm, to in zip(sequence[:-1], sequence[1:]):
+            if is_open_problem and to == 1:
+                continue
             x1, y1 = coords[frm]
             x2, y2 = coords[to]
             total_cost += math.hypot(x1 - x2, y1 - y2)
@@ -347,21 +567,22 @@ def solve_instance(
 ) -> dict:
     ensure_local_pyvrp_import(pyvrp_root)
 
-    from pyvrp.read import read
-    from pyvrp.solve import SolveParams, solve
     from pyvrp.stop import MaxIterations
 
-    data = read(dataset_dir / instance_name, round_func)
-    result = solve(
-        data,
-        MaxIterations(max_iterations),
-        seed=seed,
-        collect_stats=False,
-        display=False,
-        params=SolveParams(),
-    )
+    problem, fields = parse_vrp_instance(dataset_dir / instance_name, VRP_FILE_SCALE)
+    model = build_model(problem, fields, COORD_SCALE)
 
-    obj = calculate_exact_ovrp_cost(dataset_dir / instance_name, result.best.routes())
+    started = time.time()
+    result = model.solve(stop=MaxIterations(max_iterations), seed=seed, display=False)
+    runtime_s = time.time() - started
+
+    if result.is_feasible():
+        depot_shift = 1 if problem in OPEN_PROBLEMS else 0
+        routes = [[visit - depot_shift for visit in route.visits()] for route in result.best.routes()]
+        obj = calc_route_cost(problem, fields["depot_xy"], fields["node_xy"], flatten_routes(routes))
+    else:
+        obj = math.inf
+
     feasible = result.is_feasible() and math.isfinite(obj)
     if not feasible:
         obj = float(baseline["obj"]) + max(100000.0, float(baseline["obj"]) * 10.0)
@@ -377,15 +598,15 @@ def solve_instance(
         "instance": instance_name,
         "feasible": feasible,
         "obj": obj,
-        "runtime": float(result.runtime),
+        "runtime": runtime_s,
         "baseline_obj": baseline_obj,
         "baseline_runtime": baseline_runtime,
         "ortools_obj": ortools_obj,
         "ortools_runtime": ortools_runtime,
         "delta_gap_percent_vs_baseline": delta_gap_percent_vs_baseline,
-        "delta_runtime_seconds_vs_baseline": float(result.runtime) - baseline_runtime,
+        "delta_runtime_seconds_vs_baseline": runtime_s - baseline_runtime,
         "delta_gap_percent_vs_ortools": ((obj / ortools_obj) - 1.0) * 100.0,
-        "delta_runtime_seconds_vs_ortools": float(result.runtime) - ortools_runtime,
+        "delta_runtime_seconds_vs_ortools": runtime_s - ortools_runtime,
     }
 
 

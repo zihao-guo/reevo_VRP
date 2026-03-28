@@ -90,34 +90,44 @@ pyvrp::Solution pyvrp::crossover::selectiveRouteExchange(
             selectedB[c] = true;
     }
 
-    // MODIFY: Prioritize route selection based on minimal client count differences
-    // This preserves stronger route structure, reduces reallocations, and
-    // minimizes penalized cost changes.
+    // For the selection, we want to minimize |A\B| as these need replanning
     while (true)
     {
         // Difference for moving 'left' in parent A
         int differenceALeft = 0;
-        size_t currASize = routesA[(startA + numMovedRoutes - 1) % nRoutesA].size();
-        size_t nextASize = routesA[(startA - 1 + nRoutesA) % nRoutesA].size();
-        differenceALeft = std::abs(static_cast<int>(nextASize - currASize));
+
+        for (Client c : routesA[(startA - 1 + nRoutesA) % nRoutesA])
+            differenceALeft += !selectedB[c];
+
+        for (Client c : routesA[(startA + numMovedRoutes - 1) % nRoutesA])
+            differenceALeft -= !selectedB[c];
 
         // Difference for moving 'right' in parent A
         int differenceARight = 0;
-        currASize = routesA[startA].size();
-        nextASize = routesA[(startA + numMovedRoutes) % nRoutesA].size();
-        differenceARight = std::abs(static_cast<int>(nextASize - currASize));
+
+        for (Client c : routesA[(startA + numMovedRoutes) % nRoutesA])
+            differenceARight += !selectedB[c];
+
+        for (Client c : routesA[startA])
+            differenceARight -= !selectedB[c];
 
         // Difference for moving 'left' in parent B
         int differenceBLeft = 0;
-        currASize = routesB[(startB + numMovedRoutes - 1) % nRoutesB].size();
-        nextASize = routesB[(startB - 1 + nRoutesB) % nRoutesB].size();
-        differenceBLeft = std::abs(static_cast<int>(nextASize - currASize));
+
+        for (Client c : routesB[(startB - 1 + numMovedRoutes) % nRoutesB])
+            differenceBLeft += selectedA[c];
+
+        for (Client c : routesB[(startB - 1 + nRoutesB) % nRoutesB])
+            differenceBLeft -= selectedA[c];
 
         // Difference for moving 'right' in parent B
         int differenceBRight = 0;
-        currASize = routesB[startB].size();
-        nextASize = routesB[(startB + numMovedRoutes) % nRoutesB].size();
-        differenceBRight = std::abs(static_cast<int>(nextASize - currASize));
+
+        for (Client c : routesB[startB])
+            differenceBRight += selectedA[c];
+
+        for (Client c : routesB[(startB + numMovedRoutes) % nRoutesB])
+            differenceBRight -= selectedA[c];
 
         int const bestDifference = std::min({differenceALeft,
                                              differenceARight,
