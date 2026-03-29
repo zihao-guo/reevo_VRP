@@ -268,11 +268,18 @@ class ReEvo:
         individual["candidate_path"] = archived_candidate_path
 
         metrics_path = os.path.splitext(archived_candidate_path)[0] + ".txt"
+        def format_metric(value):
+            if value is None:
+                return "None"
+            if isinstance(value, (int, float)) and np.isfinite(float(value)):
+                return f"{float(value):.6f}"
+            return str(value)
+
         # //modify Persist parsed summary metrics next to each successful candidate.
         with open(metrics_path, "w", encoding="utf-8") as metrics_file:
-            metrics_file.write(f"Ast: {individual.get('ast')}\n")
-            metrics_file.write(f"Obj: {individual.get('obj')}\n")
-            metrics_file.write(f"Running time: {individual.get('avg_runtime')}\n")
+            metrics_file.write(f"Ast: {format_metric(individual.get('ast'))}\n")
+            metrics_file.write(f"Obj: {format_metric(individual.get('obj'))}\n")
+            metrics_file.write(f"Running time: {format_metric(individual.get('avg_runtime'))}\n")
 
     def _extract_failure_reason(self, stdout_str: str, traceback_msg: str) -> str:
         """
@@ -390,6 +397,11 @@ class ReEvo:
                     )
 
                 ast_str = f"{individual['ast']:.6f}" if individual.get('ast') is not None else "None"
+                obj_str = (
+                    f"{float(individual['obj']):.6f}"
+                    if individual.get("obj") is not None and np.isfinite(float(individual["obj"]))
+                    else str(individual.get("obj"))
+                )
                 avg_runtime_str = (
                     f"{individual['avg_runtime']:.6f}"
                     if individual.get("avg_runtime") is not None
@@ -401,7 +413,7 @@ class ReEvo:
                     logging.info(
                         f"Iteration {self.iteration}, response_id {response_id}: "
                         f"Ast: {ast_str}, Avg.running time: {avg_runtime_str}, "
-                        f"Objective value: {individual['obj']}"
+                        f"Objective value: {obj_str}"
                     )
                 else:
                     # //modify Print failures as a dedicated block so they stand out in long logs.
@@ -518,24 +530,48 @@ class ReEvo:
         while len(selected_population) < 2 * self.cfg.pop_size:
             trial += 1
             parents = np.random.choice(population, size=2, replace=False)
-            # If two parents have the same objective value, consider them as identical; otherwise, add them to the selected population
-            if parents[0]["obj"] != parents[1]["obj"]:
+            # //modify Allow parent pairing to break ties using ast after obj.
+            if self._compare_individuals(parents[0], parents[1]) != 0:
                 selected_population.extend(parents)
             if trial > 1000:
                 return None
         return selected_population
 
+    def _compare_individuals(self, ind1: dict, ind2: dict) -> int:
+        """
+        Compare two individuals for selection and reflection ordering.
+        Returns -1 if ind1 is better, 1 if ind2 is better, and 0 if tied.
+        """
+        # //modify Compare individuals by obj first because it is the primary optimisation target.
+        if ind1["obj"] < ind2["obj"]:
+            return -1
+        if ind1["obj"] > ind2["obj"]:
+            return 1
+
+        ast1 = ind1.get("ast")
+        ast2 = ind2.get("ast")
+        # //modify Break obj ties by ast so equal-objective individuals can still be ordered.
+        if ast1 is not None and ast2 is not None:
+            if ast1 < ast2:
+                return -1
+            if ast1 > ast2:
+                return 1
+
+        return 0
+
     def gen_short_term_reflection_prompt(self, ind1: dict, ind2: dict) -> tuple[list[dict], str, str]:
         """
         Short-term reflection before crossovering two individuals.
         """
-        if ind1["obj"] == ind2["obj"]:
+        comparison = self._compare_individuals(ind1, ind2)
+        # //modify Reject crossover only when both obj and ast are tied.
+        if comparison == 0:
             print(ind1["code"], ind2["code"])
-            raise ValueError("Two individuals to crossover have the same objective value!")
-        # Determine which individual is better or worse
-        if ind1["obj"] < ind2["obj"]:
+            raise ValueError("Two individuals to crossover have the same objective value and ast!")
+        # //modify Determine better/worse using obj first and ast as the tie-breaker.
+        if comparison < 0:
             better_ind, worse_ind = ind1, ind2
-        else: # robust in rare cases where two individuals have the same objective value
+        else:
             better_ind, worse_ind = ind2, ind1
 
         worse_code = self._format_code_for_prompt(worse_ind["code"])

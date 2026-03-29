@@ -130,3 +130,5 @@
    - `61.x` 主要来自 open-route 成本统计口径错误；
    - 修正成本统计后残留的 `24.9`，主要来自 `read()` 在 OVRP 上仍按 closed-route 读模；
    - 现在 `ovrp_hgs/eval.py` 已整体切换到 baseline 同款 `build_model()+Model.solve()`，从而消除了“seed=original 但仍明显差于 baseline”的评测假差距。
+42. Update in English: the OVRP evaluation bug was not only a cost-format issue. The deeper problem was that the old evaluator used `read(...)+solve(...)`, while the baseline was produced with an explicit open-route model built by `build_model()+Model.solve()`. This mismatch made the original SREX implementation look much worse than the baseline even when the code itself was unchanged.
+43. Update in English: the parent-selection tie logic in `reevo.py` was relaxed to compare individuals by `obj` first and by `ast` second. This allows crossover between candidates that have identical objective values but different AST similarity scores, while still rejecting pairs that are tied on both `obj` and `ast`.
