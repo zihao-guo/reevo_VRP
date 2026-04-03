@@ -72,13 +72,6 @@ Cost 27591
 Time 1.068822s
 ```
 
-运行前提：
-
-- 从仓库根目录 `reevo/` 执行下面命令。
-- 使用仓库虚拟环境 `./.venv/bin/python`。
-- `OR-Tools` 由根目录 [pyproject.toml](/home/zguo/Coding/reevo/pyproject.toml) 管理。
-- `solve_reference_pyvrp.py` 会自动从 `utils/pyvrp_rep` 加载本地 `pyvrp` 实现，不需要额外安装独立的 `pyvrp` 包。
-
 ## OR-Tools
 
 单个问题：

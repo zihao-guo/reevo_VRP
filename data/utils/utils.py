@@ -32,7 +32,7 @@ def seed_everything(seed=2023):
 
 
 def get_env(problem):
-    from data.utils.envs import (
+    from envs import (
         CVRPEnv,
         OVRPEnv,
         VRPBEnv,

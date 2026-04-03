@@ -7,18 +7,14 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import get_context
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-LOCAL_PYVRP_REP = REPO_ROOT / "utils" / "pyvrp_rep"
+LOCAL_PYVRP_REP = Path(__file__).resolve().parents[2] / "pyvrp_rep"
 if str(LOCAL_PYVRP_REP) not in sys.path:
     sys.path.insert(0, str(LOCAL_PYVRP_REP))
 
 from pyvrp import Model
 from pyvrp.constants import MAX_VALUE
 from pyvrp.stop import MaxIterations
-from data.utils.utils import get_config_value, load_data_config
+from utils import get_config_value, load_data_config
 
 OPEN_PROBLEMS = {
     "OVRP",

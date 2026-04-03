@@ -1,19 +1,14 @@
 import argparse
 import os
 import math
-import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import get_context
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
 from ortools.constraint_solver import pywrapcp
 from ortools.constraint_solver import routing_enums_pb2
-from data.utils.utils import get_config_value, load_data_config
+from utils import get_config_value, load_data_config
 
 OPEN_PROBLEMS = {
     "OVRP",
