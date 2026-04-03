@@ -1,28 +1,28 @@
 # EvoHGS
 Evolving Hybrid Genetic Search via LLMs for Multi-Task Vehicle Routing
 
-## 数据与节点规模
+## Data and Instance Sizes
 
-数据生成、`.vrp` 基线求解、`pyvrp`/`OR-Tools` 参考解生成，见 [data/README.md](/home/zguo/Coding/reevo/data/README.md)。
+For data generation, baseline `.vrp` solving, and `pyvrp`/`OR-Tools` reference-solution generation, see [data/README.md](/home/zguo/Coding/reevo/data/README.md).
 
-当前仓库里已经生成并使用的节点规模有：
+The instance sizes currently generated and used in this repository are:
 - `101`
 - `201`
 - `401`
 
-对应关系：
-- `101` = `100` 个客户 + `1` 个 depot
-- `201` = `200` 个客户 + `1` 个 depot
-- `401` = `400` 个客户 + `1` 个 depot
+Mapping:
+- `101` = `100` customers + `1` depot
+- `201` = `200` customers + `1` depot
+- `401` = `400` customers + `1` depot
 
-## 从 0 到能跑 `cvrp_hgs`
+## Running `cvrp_hgs` from Scratch
 
-除了 `uv sync` 之外，还需要：
-- 系统里有 `c++` 和 `pkg-config`
-- 如果用本地模型，先从 Hugging Face 下载 `OpenPipe/Qwen3-14B-Instruct`：[(点击)这里](https://huggingface.co/OpenPipe/Qwen3-14B-Instruct)
-- 下载后把模型放到 `cfg/llm_client/local/OpenPipe__Qwen3-14B-Instruct`
+In addition to `uv sync`, you also need:
+- `c++` and `pkg-config` available on the system
+- If you use the local model, download `OpenPipe/Qwen3-14B-Instruct` from Hugging Face first: [link](https://huggingface.co/OpenPipe/Qwen3-14B-Instruct)
+- After downloading, place the model under `cfg/llm_client/local/OpenPipe__Qwen3-14B-Instruct`
 
-步骤：
+Steps:
 
 ```bash
 uv sync
@@ -31,7 +31,7 @@ export LOCAL_LLM_API_KEY=EMPTY
 ./utils/start_local_vllm.sh
 ```
 
-另一个终端：
+In another terminal:
 
 ```bash
 source .venv/bin/activate
@@ -39,14 +39,14 @@ export LOCAL_LLM_API_KEY=EMPTY
 python main.py problem=cvrp_hgs llm_client=local init_pop_size=1 pop_size=1 max_fe=2 timeout=1800
 ```
 
-说明：
-- `uv sync` 会创建 `.venv` 并安装 Python 依赖
-- `utils/pyvrp_rep` 不需要手动预编译，`cvrp_hgs` 评测时会自动 build
-- `llm_client=local` 仍然需要先启动 `./utils/start_local_vllm.sh`
-- `problem=cvrp_hgs` 只是示例，这里可以切换为下面任一个 HGS 问题名
-- Hugging Face 模型页：[(点击)这里](https://huggingface.co/OpenPipe/Qwen3-14B-Instruct)
+Notes:
+- `uv sync` creates `.venv` and installs the Python dependencies
+- `utils/pyvrp_rep` does not need manual precompilation; `cvrp_hgs` builds it automatically during evaluation
+- `llm_client=local` still requires `./utils/start_local_vllm.sh` to be running first
+- `problem=cvrp_hgs` is only an example; you can switch it to any HGS problem listed below
+- Hugging Face model page: [link](https://huggingface.co/OpenPipe/Qwen3-14B-Instruct)
 
-## 当前已添加的 HGS 问题
+## Currently Added HGS Problems
 
 - `cvrp_hgs`
 - `ovrp_hgs`
@@ -55,7 +55,7 @@ python main.py problem=cvrp_hgs llm_client=local init_pop_size=1 pop_size=1 max_
 - `vrpl_hgs`
 - `vrptw_hgs`
 
-通用写法：
+General form:
 
 ```bash
 source .venv/bin/activate
@@ -63,11 +63,11 @@ export LOCAL_LLM_API_KEY=EMPTY
 python main.py problem=<problem_name> llm_client=local
 ```
 
-把 `<problem_name>` 替换成上面任一个即可。
+Replace `<problem_name>` with any of the problem names above.
 
 ## `cvrp_hgs`
 
-最小冒烟：
+Minimal smoke test:
 
 ```bash
 source .venv/bin/activate
@@ -75,7 +75,7 @@ export LOCAL_LLM_API_KEY=EMPTY
 python main.py problem=cvrp_hgs llm_client=local init_pop_size=1 pop_size=1 max_fe=2 timeout=1800
 ```
 
-正式演化：
+Full evolution run:
 
 ```bash
 source .venv/bin/activate
@@ -85,7 +85,7 @@ python main.py problem=cvrp_hgs llm_client=local
 
 ## `vrptw_hgs`
 
-最小冒烟：
+Minimal smoke test:
 
 ```bash
 source .venv/bin/activate
@@ -93,27 +93,27 @@ export LOCAL_LLM_API_KEY=EMPTY
 python main.py problem=vrptw_hgs llm_client=local llm_client.temperature=0.2 init_pop_size=4 pop_size=4 max_fe=5 timeout=1800
 ```
 
-直接验证当前根目录 `selective_route_exchange.cpp`：
+Validate the current root-level `selective_route_exchange.cpp` directly:
 
 ```bash
 source .venv/bin/activate
 python problems/vrptw_hgs/eval.py -1 . train selective_route_exchange.cpp
 ```
 
-说明：
-- `vrptw_hgs` 会读取 `cfg/problem/vrptw_hgs.yaml`
-- 数据目录配置为 `data/generated/VRPTW/101` 和 `data/opt/VRPTW/101`
-- `utils/pyvrp_rep` 不需要手动预编译，评测时会自动增量 build
+Notes:
+- `vrptw_hgs` reads `cfg/problem/vrptw_hgs.yaml`
+- The data directories are configured as `data/generated/VRPTW/101` and `data/opt/VRPTW/101`
+- `utils/pyvrp_rep` does not need manual precompilation; evaluation triggers incremental builds automatically
 
-## 其他本地模型运行
+## Running Other Local-Model Tasks
 
-先启动：
+Start the server first:
 
 ```bash
 ./utils/start_local_vllm.sh
 ```
 
-再运行：
+Then run:
 
 ```bash
 source .venv/bin/activate
@@ -121,7 +121,7 @@ export LOCAL_LLM_API_KEY=EMPTY
 python main.py problem=tsp_gls llm_client=local init_pop_size=1 pop_size=1 max_fe=2 timeout=300
 ```
 
-## API 方式运行
+## Running via API
 
 ```bash
 source .venv/bin/activate
